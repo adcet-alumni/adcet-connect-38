@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="640" height="640">
+<defs>
+<path id="topArc" d="M 68.15,328.79 A 252,252 0 1,1 571.85,328.79" fill="none"/>
+<path id="botArc" d="M 70.45,355.07 A 252,252 0 0,0 569.55,355.07" fill="none"/>
+<path id="ringTop" d="M 219.98,279.06 A 101,101 0 1,1 420.02,279.06" fill="none"/>
+<path id="bandArc" d="M 247.30,157.23 A 130,130 0 1,0 392.70,157.23" fill="none"/>
+<path id="ribbonText" d="M 209.93,387.25 A 164.5,164.5 0 0,0 430.07,387.25" fill="none"/>
+</defs>
+<circle cx="320" cy="320" r="320" fill="#FFFFFF"/>
+<circle cx="320" cy="320" r="320" fill="#00305E"/>
+<circle cx="320" cy="320" r="309" fill="#FFFFFF"/>
+<circle cx="320" cy="320" r="300" fill="#00305E"/>
+<path d="M 320,320 L 618.86,346.15 A 300,300 0 0,1 21.14,346.15 Z" fill="#FE9B36"/>
+<circle cx="320" cy="320" r="200" fill="#FFFFFF"/>
+<text font-family="Poppins, Arial, sans-serif" font-weight="700" font-size="40" fill="#FFFFFF" letter-spacing="2"><textPath href="#topArc" startOffset="50%" text-anchor="middle">ADCET ALUMNI CELL</textPath></text>
+<text font-family="Poppins, Arial, sans-serif" font-weight="700" font-size="38" fill="#FFFFFF" letter-spacing="2"><textPath href="#botArc" startOffset="50%" text-anchor="middle">OUR LEGACY OUR PRIDE</textPath></text>
+<polygon points="60.24,261.86 64.35,273.19 76.41,273.60 66.90,281.02 70.23,292.61 60.24,285.86 50.25,292.61 53.58,281.02 44.07,273.60 56.12,273.19" fill="#FFFFFF"/>
+<polygon points="579.76,261.86 583.88,273.19 595.93,273.60 586.42,281.02 589.75,292.61 579.76,285.86 569.77,292.61 573.10,281.02 563.59,273.60 575.65,273.19" fill="#FFFFFF"/>
+<circle cx="320" cy="265" r="114" fill="#DE2C34"/>
+<circle cx="320" cy="265" r="89" fill="#FFF0A8"/>
+<g><path d="M 286.0,340 L 354.0,340 L 340.0,328 L 300.0,328 Z" fill="#1A1A1A"/>
+<rect x="312.0" y="316" width="16" height="14" fill="#1A1A1A"/>
+<path d="M 329.00,250.00 L 311.00,263.20 L 329.00,276.40 L 311.00,289.60 L 329.00,302.80 L 311.00,316.00" fill="none" stroke="#1A1A1A" stroke-width="9" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="262.0" y="245" width="100" height="7" fill="#1A1A1A"/>
+<path d="M 290.00,250.00 L 295.60,236.00 L 301.20,222.00 L 306.80,208.00 L 312.40,194.00 L 318.00,180.00" fill="none" stroke="#1A1A1A" stroke-width="3.2"/>
+<path d="M 350.00,250.00 L 344.40,236.00 L 338.80,222.00 L 333.20,208.00 L 327.60,194.00 L 322.00,180.00" fill="none" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="290.00" y1="250.00" x2="350.00" y2="250.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="290.00" y1="250.00" x2="344.40" y2="236.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="350.00" y1="250.00" x2="295.60" y2="236.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="295.60" y1="236.00" x2="344.40" y2="236.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="295.60" y1="236.00" x2="338.80" y2="222.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="344.40" y1="236.00" x2="301.20" y2="222.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="301.20" y1="222.00" x2="338.80" y2="222.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="301.20" y1="222.00" x2="333.20" y2="208.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="338.80" y1="222.00" x2="306.80" y2="208.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="306.80" y1="208.00" x2="333.20" y2="208.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="306.80" y1="208.00" x2="327.60" y2="194.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="333.20" y1="208.00" x2="312.40" y2="194.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="312.40" y1="194.00" x2="327.60" y2="194.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="312.40" y1="194.00" x2="322.00" y2="180.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="327.60" y1="194.00" x2="318.00" y2="180.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="318.00" y1="180.00" x2="322.00" y2="180.00" stroke="#1A1A1A" stroke-width="3.2"/>
+<line x1="318.00" y1="198.00" x2="402.00" y2="182.00" stroke="#1A1A1A" stroke-width="2.4"/>
+<line x1="320.00" y1="190.00" x2="406.00" y2="194.00" stroke="#1A1A1A" stroke-width="2.4"/>
+<line x1="322.00" y1="182.00" x2="406.00" y2="208.00" stroke="#1A1A1A" stroke-width="2.4"/>
+<line x1="324.00" y1="182.00" x2="400.00" y2="222.00" stroke="#1A1A1A" stroke-width="2.4"/>
+<path d="M 274.00,221.00 Q 281.00,231.00 279.00,241.00 Q 283.00,247.00 279.00,253.00 Q 277.00,256.00 274.00,256.00 Q 271.00,256.00 269.00,253.00 Q 265.00,247.00 269.00,241.00 Q 267.00,231.00 274.00,221.00 Z" fill="#1A1A1A"/>
+<path d="M 288.00,221.00 Q 295.00,231.00 293.00,241.00 Q 297.00,247.00 293.00,253.00 Q 291.00,256.00 288.00,256.00 Q 285.00,256.00 283.00,253.00 Q 279.00,247.00 283.00,241.00 Q 281.00,231.00 288.00,221.00 Z" fill="#1A1A1A"/>
+<path d="M 302.00,221.00 Q 309.00,231.00 307.00,241.00 Q 311.00,247.00 307.00,253.00 Q 305.00,256.00 302.00,256.00 Q 299.00,256.00 297.00,253.00 Q 293.00,247.00 297.00,241.00 Q 295.00,231.00 302.00,221.00 Z" fill="#1A1A1A"/>
+<path d="M 385.00,207.00 L 390.58,202.79 L 391.77,203.18 L 393.82,209.86 L 393.82,209.86 L 400.80,209.74 L 401.54,210.76 L 399.27,217.36 L 399.27,217.36 L 404.99,221.37 L 404.99,222.63 L 399.27,226.64 L 399.27,226.64 L 401.54,233.24 L 400.80,234.26 L 393.82,234.14 L 393.82,234.14 L 391.77,240.82 L 390.58,241.21 L 385.00,237.00 L 385.00,237.00 L 379.42,241.21 L 378.23,240.82 L 376.18,234.14 L 376.18,234.14 L 369.20,234.26 L 368.46,233.24 L 370.73,226.64 L 370.73,226.64 L 365.01,222.63 L 365.01,221.37 L 370.73,217.36 L 370.73,217.36 L 368.46,210.76 L 369.20,209.74 L 376.18,209.86 L 376.18,209.86 L 378.23,203.18 L 379.42,202.79 L 385.00,207.00 Z" fill="#1A1A1A"/><circle cx="385.0" cy="222" r="8" fill="#FFF0A8"/><circle cx="385.0" cy="222" r="8" fill="none" stroke="#1A1A1A" stroke-width="2.2"/>
+<ellipse cx="262.0" cy="212" rx="30" ry="10" fill="#1A1A1A" transform="rotate(-18 262.0 212)"/><circle cx="262.0" cy="212" r="19" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="2.5"/><ellipse cx="262.0" cy="212" rx="30" ry="7" fill="none" stroke="#1A1A1A" stroke-width="3.5" transform="rotate(-18 262.0 212)"/>
+<rect x="367.0" y="304" width="6" height="22" fill="#1A1A1A"/><rect x="354.0" y="324" width="32" height="6" fill="#1A1A1A"/><ellipse cx="370.0" cy="304" rx="6" ry="3" fill="#1A1A1A"/><g transform="rotate(-25 370.0 288)"><ellipse cx="370.0" cy="288" rx="34" ry="18" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="3"/><line x1="370.0" y1="288" x2="372.0" y2="258" stroke="#1A1A1A" stroke-width="3"/><line x1="372.0" y1="258" x2="360.0" y2="272" stroke="#1A1A1A" stroke-width="3"/></g>
+<rect x="244.0" y="312" width="52" height="26" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="3"/><rect x="244.0" y="312" width="52" height="8" fill="#1A1A1A"/><circle cx="290.0" cy="325" r="2.2" fill="#1A1A1A"/><rect x="253.0" y="278" width="34" height="30" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="3"/><rect x="258.0" y="283" width="24" height="19" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="2.4"/></g>
+<text font-family="Arial, sans-serif" font-weight="700" font-size="14.5" fill="#FFFFFF" letter-spacing="0.3"><textPath href="#ringTop" startOffset="50%" text-anchor="middle">SANT DNYANESHWAR SHIKSHAN SAHSTHA</textPath></text>
+<text font-family="Arial, sans-serif" font-weight="700" font-size="12.6" fill="#155EA8" letter-spacing="0.2"><textPath href="#bandArc" startOffset="50%" text-anchor="middle">ANNASAHEB DANGE COLLEGE OF ENGG. &amp; TECHNOLOGY, ASHTA DIST. SANGLI</textPath></text>
+<path d="M 207.21,194.52 C 197.21,172.52 175.21,164.52 179.21,142.52 C 181.21,130.52 197.21,128.52 203.21,138.52 C 209.21,148.52 199.21,152.52 193.21,146.52" fill="none" stroke="#155EA8" stroke-width="3.4" stroke-linecap="round"/>
+<path d="M 432.79,194.52 C 442.79,172.52 464.79,164.52 460.79,142.52 C 458.79,130.52 442.79,128.52 436.79,138.52 C 430.79,148.52 440.79,152.52 446.79,146.52" fill="none" stroke="#155EA8" stroke-width="3.4" stroke-linecap="round"/>
+<path d="M 427.76,362.02 L 450.79,382.77 A 176,176 0 0,1 189.21,382.77 L 212.24,362.02 A 145,145 0 0,0 427.76,362.02 Z" fill="#155EA8"/>
+<path d="M 456.78,375.76 L 461.20,353.23 L 432.69,356.25 Z" fill="#155EA8"/>
+<path d="M 183.22,375.76 L 178.80,353.23 L 207.31,356.25 Z" fill="#155EA8"/>
+<text font-family="Noto Sans Devanagari, sans-serif" font-weight="700" font-size="18" fill="#FFFFFF"><textPath href="#ribbonText" startOffset="50%" text-anchor="middle">॥ ज्ञान ज्योति नमोस्तु ते ॥</textPath></text>
+<text x="320" y="478" font-family="Noto Sans Devanagari, sans-serif" font-weight="700" font-size="62" fill="#C40404" text-anchor="middle">ऋणानुबंध</text>
+</svg>

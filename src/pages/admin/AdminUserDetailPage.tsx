@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Mail, Building, GraduationCap, MapPin, Phone, Linkedin, Github, Twitter, Globe, MessageSquare, Loader2 } from "lucide-react";
+import { ArrowLeft, Mail, Building, GraduationCap, MapPin, Phone, Linkedin, Github, Twitter, Globe, MessageSquare, Loader2, UserX, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
-import { api, type AppRole, type ApprovalStatus } from "@/lib/api";
+import { api, isNotFoundError, type AppRole, type ApprovalStatus } from "@/lib/api";
+import { EmptyState } from "@/components/EmptyState";
 import { safeExternalUrl } from "@/lib/urls";
 
 interface AdminUserDetail {
@@ -59,7 +60,24 @@ const AdminUserDetailPage = () => {
       </Button>
 
       {isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
-      {error && <div className="text-sm text-destructive">Failed to load user.</div>}
+      {error && (isNotFoundError(error) ? (
+        <EmptyState
+          icon={UserX}
+          title="Member not found"
+          description="This account no longer exists — it may have been deleted since the link was made."
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate("/admin/approvals")}>
+              Back to members
+            </Button>
+          }
+        />
+      ) : (
+        <EmptyState
+          icon={AlertCircle}
+          title="Couldn't load this member"
+          description="Something went wrong on our side. Please try again in a moment."
+        />
+      ))}
       {data && (
         <div className="card-elevated p-6 space-y-6">
           <div className="flex items-center gap-4">

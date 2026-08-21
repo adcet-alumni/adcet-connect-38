@@ -6,10 +6,11 @@
 import { useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BellOff, AlertCircle } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { api, isNotFoundError } from "@/lib/api";
+import { EmptyState } from "@/components/EmptyState";
 
 interface Notification {
   id: string;
@@ -57,7 +58,24 @@ const NotificationPage = () => {
       </Button>
 
       {isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
-      {error && <div className="text-sm text-destructive">Failed to load notification.</div>}
+      {error && (isNotFoundError(error) ? (
+        <EmptyState
+          icon={BellOff}
+          title="Notification not found"
+          description="It may have been cleared already. Notifications are only ever your own."
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/notifications")}>
+              All notifications
+            </Button>
+          }
+        />
+      ) : (
+        <EmptyState
+          icon={AlertCircle}
+          title="Couldn't load this notification"
+          description="Something went wrong on our side. Please try again in a moment."
+        />
+      ))}
       {data && (
         <div className="card-elevated p-6 space-y-4">
           <div>

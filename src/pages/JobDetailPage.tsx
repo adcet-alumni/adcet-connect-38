@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Building2, MapPin, Briefcase, Users2, Calendar, Loader2, ExternalLink, Lock, Unlock, Upload, Paperclip, Download, Tag } from "lucide-react";
+import { ArrowLeft, Building2, MapPin, Briefcase, Users2, Calendar, Loader2, ExternalLink, Lock, Unlock, Upload, Paperclip, Download, Tag, BriefcaseBusiness, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
-import { api, uploadFile } from "@/lib/api";
+import { api, isNotFoundError, uploadFile } from "@/lib/api";
+import { EmptyState } from "@/components/EmptyState";
 import { toast } from "@/hooks/use-toast";
 import { safeExternalUrl } from "@/lib/urls";
 
@@ -86,7 +87,24 @@ const JobDetailPage = () => {
       </Button>
 
       {isLoading && <div className="text-sm text-muted-foreground">Loading...</div>}
-      {error && <div className="text-sm text-destructive">Failed to load job.</div>}
+      {error && (isNotFoundError(error) ? (
+        <EmptyState
+          icon={BriefcaseBusiness}
+          title="Job not found"
+          description="This posting may have been filled, closed or removed by the alumnus who posted it."
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/jobs")}>
+              Browse jobs
+            </Button>
+          }
+        />
+      ) : (
+        <EmptyState
+          icon={AlertCircle}
+          title="Couldn't load this job"
+          description="Something went wrong on our side. Please try again in a moment."
+        />
+      ))}
       {job && (
         <div className="card-elevated p-4 sm:p-6 space-y-5">
           {job.isClosed && (

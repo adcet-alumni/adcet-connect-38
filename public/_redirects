@@ -1,0 +1,12 @@
+# Single-page app fallback.
+#
+# Every route below is client-side: the server only ever has index.html to
+# serve. Without this rule a *refresh* or a pasted deep link (/dashboard/events,
+# an achievement share link, an email RSVP landing page) 404s at the host before
+# React ever boots — so the app's own 404 page never gets a chance to run, and
+# neither does any real page. The 200 keeps the URL intact for the router.
+#
+# Read by Netlify, Cloudflare Pages and Lovable. Other hosts need the same rule
+# in their own config (vercel.json rewrites, or `try_files $uri /index.html` on
+# nginx).
+/*    /index.html    200

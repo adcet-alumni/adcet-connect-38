@@ -34,11 +34,12 @@ import ChaptersPage from "./pages/ChaptersPage";
 import CollaborationPage from "./pages/CollaborationPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import AlumniDirectoryPage from "./pages/AlumniDirectoryPage";
-import NotFound from "./pages/NotFound";
+import NotFound, { AdminNotFound, DashboardNotFound } from "./pages/NotFound";
 import AchievementDetailPage from "./pages/AchievementDetailPage";
 import PublicAchievementPage from "./pages/PublicAchievementPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
+import { shouldRetryQuery } from "./lib/api";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -66,7 +67,11 @@ import FeedModerationPage from "./pages/admin/FeedModerationPage";
 import AdminUserDetailPage from "./pages/admin/AdminUserDetailPage";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  // A definitive 4xx is not retried, so a detail page can say "not found"
+  // immediately instead of spinning through three doomed attempts first.
+  defaultOptions: { queries: { retry: shouldRetryQuery } },
+});
 
 const App = () => (
   <ThemeProvider>
@@ -140,6 +145,12 @@ const App = () => (
                     <Route path="news" element={<StaticContentPage contentKey="news" />} />
                     <Route path="status" element={<AccountStatusPage />} />
                   </Route>
+                  {/* A mistyped /dashboard/* URL keeps the portal shell —
+                      sidebar, topbar and theme — instead of dropping the
+                      member onto the bare public 404. Deliberately outside
+                      AccountStatusGate: a bad link is a bad link whatever the
+                      account status, and it discloses nothing. */}
+                  <Route path="*" element={<DashboardNotFound />} />
                 </Route>
               </Route>
 
@@ -164,6 +175,8 @@ const App = () => (
                   <Route path="collaboration/workshop" element={<CollaborationAdminPage type="WORKSHOP" />} />
                   <Route path="support" element={<SupportInboxPage />} />
                   <Route path="settings" element={<SettingsPage />} />
+                  {/* Same for the admin console. */}
+                  <Route path="*" element={<AdminNotFound />} />
                 </Route>
               </Route>
 

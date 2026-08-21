@@ -73,6 +73,32 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * True when the server said "no such record" — as opposed to a network
+ * failure, an outage or a 500. Detail pages branch on this so a deleted event
+ * or a stale link reads as "this is gone" instead of "something broke", which
+ * is the difference between a reader clicking back and a reader filing a bug.
+ */
+export const isNotFoundError = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === 404;
+
+/**
+ * TanStack Query retry policy, applied app-wide in `App.tsx`.
+ *
+ * Never retry a request the server has already answered definitively: a 404
+ * (the record is gone), a 403 (not yours) or a 400 (bad input) will fail
+ * identically however many times it is repeated, and the only thing retrying
+ * buys is several more seconds of spinner before the page can say "not found".
+ * A 429 is the exception — that one *is* worth waiting out. Transport failures
+ * and 5xx keep two retries.
+ */
+export const shouldRetryQuery = (failureCount: number, error: unknown): boolean => {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 429) {
+    return false;
+  }
+  return failureCount < 2;
+};
+
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 interface RequestOptions {

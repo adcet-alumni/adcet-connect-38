@@ -1,11 +1,12 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Calendar, MapPin, Users, Loader2, Video, Paperclip, Building2, Download } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, Users, Loader2, Video, Paperclip, Building2, Download, CalendarX, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import EventCardMedia from "@/components/EventCardMedia";
-import { api } from "@/lib/api";
+import { api, isNotFoundError } from "@/lib/api";
+import { EmptyState } from "@/components/EmptyState";
 import { toast } from "@/hooks/use-toast";
 import { safeExternalUrl } from "@/lib/urls";
 
@@ -62,7 +63,26 @@ const EventDetailPage = () => {
       </Button>
 
       {isLoading && <div className="text-sm text-muted-foreground">Loading...</div>}
-      {error && <div className="text-sm text-destructive">Failed to load event.</div>}
+      {/* "Deleted" and "the API is down" are different problems with
+          different next steps, so they get different blocks. */}
+      {error && (isNotFoundError(error) ? (
+        <EmptyState
+          icon={CalendarX}
+          title="Event not found"
+          description="This event may have been cancelled or removed by its organiser."
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/events")}>
+              Browse events
+            </Button>
+          }
+        />
+      ) : (
+        <EmptyState
+          icon={AlertCircle}
+          title="Couldn't load this event"
+          description="Something went wrong on our side. Please try again in a moment."
+        />
+      ))}
       {event && (
         <div className="card-elevated overflow-hidden">
           <EventCardMedia event={event} className="aspect-[16/5]" />
