@@ -1,8 +1,9 @@
 import { motion } from "framer-motion";
-import { Calendar, ExternalLink, FileText, Trophy } from "lucide-react";
+import { Calendar, ExternalLink, FileText, Linkedin, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { storageUrl } from "@/lib/storage";
+import { achieverLinkedin, achieverOf } from "@/lib/achievements";
 import { safeExternalUrl } from "@/lib/urls";
 
 /**
@@ -16,7 +17,10 @@ import { safeExternalUrl } from "@/lib/urls";
  *
  * `status` and `rejectionReason` arrive only from the authenticated endpoint;
  * the moderation note therefore appears in the portal (where an author reads
- * their own submission) and never on the public page.
+ * their own submission) and never on the public page. `linkedinUrl` works the
+ * same way and for the same reason it does in the directory: a personal profile
+ * link is for fellow alumni, so the public endpoints don't send one and the
+ * byline here simply has no icon next to it.
  */
 export interface AchievementArticleData {
   id: string;
@@ -29,15 +33,17 @@ export interface AchievementArticleData {
   link?: string | null;
   status?: "PENDING" | "APPROVED" | "REJECTED";
   rejectionReason?: string | null;
+  /** Set when the alumni office recorded this for someone off the portal. */
+  achieverName?: string | null;
+  /** Resolved by the API; absent on the public payload, null when there is none. */
+  linkedinUrl?: string | null;
   user?: { firstName?: string; lastName?: string } | null;
 }
-
-const authorOf = (u: AchievementArticleData["user"]) =>
-  `${u?.firstName ?? ""} ${u?.lastName ?? ""}`.trim() || "Alumnus";
 
 export default function AchievementArticle({ item }: { item: AchievementArticleData }) {
   const imageUrl = storageUrl(item.imageKey);
   const attachmentUrl = storageUrl(item.attachmentKey);
+  const linkedin = achieverLinkedin(item);
 
   return (
     <motion.article
@@ -66,7 +72,20 @@ export default function AchievementArticle({ item }: { item: AchievementArticleD
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">{item.title}</h1>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
-              <Trophy className="h-4 w-4" /> {authorOf(item.user)}
+              <Trophy className="h-4 w-4" /> {achieverOf(item)}
+              {/* Only when a usable link actually arrived — see lib/achievements. */}
+              {linkedin && (
+                <a
+                  href={linkedin}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`${achieverOf(item)} on LinkedIn`}
+                  title={`${achieverOf(item)} on LinkedIn`}
+                  className="rounded p-0.5 text-[#0A66C2] hover:bg-[#0A66C2]/10 transition-colors"
+                >
+                  <Linkedin className="h-4 w-4" />
+                </a>
+              )}
             </span>
             {item.occurredOn && (
               <span className="inline-flex items-center gap-1.5">

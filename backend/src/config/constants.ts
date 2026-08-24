@@ -41,6 +41,15 @@ export const RATE_LIMITS = {
   GLOBAL_MAX: 300,
 } as const;
 
+/**
+ * The kinds of collaboration an alumnus can offer the college. One list, read
+ * by the validators' discriminated union, the admin's pending counters and the
+ * frontend's `COLLABORATION_KINDS` (mirrored in `src/lib/collaboration.ts`).
+ * `OTHER` is the catch-all — see the enum's note in `schema.prisma`.
+ */
+export const COLLABORATION_TYPES = ["PLACEMENT", "WORKSHOP", "OTHER"] as const;
+export type CollaborationTypeName = (typeof COLLABORATION_TYPES)[number];
+
 export const UPLOAD_SCOPES = [
   "avatar", "banner", "event", "achievement", "receipt", "resume",
   "event-attachment", "job-attachment", "email-attachment", "post",

@@ -11,6 +11,9 @@ export const getById = async (req: Request, res: Response) =>
   res.json(await service.getById(req.params.id, caller(req)));
 export const create = async (req: Request, res: Response) =>
   res.status(201).json(await service.create(caller(req)!, req.body));
+/** Admin-only: record an achievement for a member, or for someone off-portal. */
+export const adminCreate = async (req: Request, res: Response) =>
+  res.status(201).json(await service.adminCreate(caller(req)!, req.body));
 export const update = async (req: Request, res: Response) =>
   res.json(await service.update(caller(req)!, req.params.id, req.body));
 export const remove = async (req: Request, res: Response) => {

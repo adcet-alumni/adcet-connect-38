@@ -8,6 +8,8 @@ import { paginationSchema } from "../../lib/pagination.js";
 import * as ctrl from "./achievements.controller.js";
 import {
   achievementInputSchema,
+  achievementUpdateSchema,
+  adminAchievementInputSchema,
   listQuerySchema,
   moderationSchema,
 } from "./achievements.validators.js";
@@ -29,11 +31,21 @@ achievementsRouter.get(
 );
 achievementsRouter.get("/:id", requireAuth, requireApproved, asyncHandler(ctrl.getById));
 achievementsRouter.post("/", requireAuth, requireApproved, validate(achievementInputSchema), asyncHandler(ctrl.create));
+// The alumni office recording somebody else's achievement. A separate route, so
+// the fields that say *whose* achievement it is are reachable only behind
+// `requireAdmin` rather than ignored on the shared one.
+achievementsRouter.post(
+  "/admin",
+  requireAuth,
+  requireAdmin,
+  validate(adminAchievementInputSchema),
+  asyncHandler(ctrl.adminCreate),
+);
 achievementsRouter.patch(
   "/:id",
   requireAuth,
   requireApproved,
-  validate(achievementInputSchema.partial()),
+  validate(achievementUpdateSchema),
   asyncHandler(ctrl.update),
 );
 achievementsRouter.delete("/:id", requireAuth, requireApproved, asyncHandler(ctrl.remove));

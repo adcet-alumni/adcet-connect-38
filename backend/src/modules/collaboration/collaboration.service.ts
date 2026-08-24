@@ -121,7 +121,7 @@ export const pendingCounts = async (): Promise<Record<CollaborationTypeName, num
     where: { status: "PENDING" },
     _count: { _all: true },
   });
-  const counts = { PLACEMENT: 0, WORKSHOP: 0 } as Record<CollaborationTypeName, number>;
+  const counts = { PLACEMENT: 0, WORKSHOP: 0, OTHER: 0 } as Record<CollaborationTypeName, number>;
   for (const row of grouped) counts[row.type as CollaborationTypeName] = row._count._all;
   return counts;
 };
@@ -138,7 +138,11 @@ const MODE_LABEL: Record<string, string> = {
 /** The type-specific rows an email should show, in reading order. */
 const emailRows = (r: Prisma.CollaborationRequestGetPayload<object>) => {
   const rows: { label: string; value: string }[] = [];
-  if (r.type === "PLACEMENT") {
+  if (r.type === "OTHER") {
+    // No kind-specific columns — the description is the request, and it is
+    // already in the body of the mail above these rows.
+    if (r.startDate) rows.push({ label: "Preferred date", value: dateText(r.startDate) });
+  } else if (r.type === "PLACEMENT") {
     if (r.jobRole) rows.push({ label: "Role", value: r.jobRole });
     if (r.candidatesRequired != null)
       rows.push({ label: "Candidates required", value: String(r.candidatesRequired) });
@@ -167,6 +171,7 @@ const emailRows = (r: Prisma.CollaborationRequestGetPayload<object>) => {
 const KIND_LABEL: Record<CollaborationTypeName, string> = {
   PLACEMENT: "placement drive",
   WORKSHOP: "workshop",
+  OTHER: "collaboration",
 };
 
 /**

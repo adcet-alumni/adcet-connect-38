@@ -53,7 +53,11 @@ describe("SidebarNavGroup", () => {
     const hrefs = COLLABORATION_KIND_LIST.map((k) =>
       screen.getByRole("link", { name: k.label }).getAttribute("href"),
     );
-    expect(hrefs).toEqual(["/dashboard/collaboration/placement", "/dashboard/collaboration/workshop"]);
+    expect(hrefs).toEqual([
+      "/dashboard/collaboration/placement",
+      "/dashboard/collaboration/workshop",
+      "/dashboard/collaboration/other",
+    ]);
   });
 
   it("rolls child badges up to the heading while collapsed, so a pending request is not hidden", () => {

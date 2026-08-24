@@ -243,6 +243,6 @@ describe("modules/collaboration/service", () => {
     prismaMock.collaborationRequest.groupBy.mockResolvedValueOnce([
       { type: "PLACEMENT", _count: { _all: 3 } },
     ] as any);
-    await expect(svc.pendingCounts()).resolves.toEqual({ PLACEMENT: 3, WORKSHOP: 0 });
+    await expect(svc.pendingCounts()).resolves.toEqual({ PLACEMENT: 3, WORKSHOP: 0, OTHER: 0 });
   });
 });

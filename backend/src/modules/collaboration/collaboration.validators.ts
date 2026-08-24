@@ -10,9 +10,9 @@
 import { z } from "zod";
 import { booleanQueryParam, paginationSchema } from "../../lib/pagination.js";
 import { departmentListSchema } from "../../lib/departments.js";
+import { COLLABORATION_TYPES } from "../../config/constants.js";
 
-export const COLLABORATION_TYPES = ["PLACEMENT", "WORKSHOP"] as const;
-export type CollaborationTypeName = (typeof COLLABORATION_TYPES)[number];
+export { COLLABORATION_TYPES, type CollaborationTypeName } from "../../config/constants.js";
 
 /** Empty string from an untouched form input means "not provided". */
 const optionalText = (max: number) =>
@@ -64,11 +64,27 @@ const workshopSchema = z.object({
 });
 
 /**
+ * The catch-all kind. It adds no fields of its own — what makes an `OTHER`
+ * request legible is the description, so that is the one thing promoted from
+ * optional to required here (a bare title would leave the office with nothing
+ * to act on), and `startDate` carries the preferred date under a different
+ * label. Anything that turns out to be common enough to deserve its own form
+ * graduates to a named kind.
+ */
+const otherSchema = z.object({
+  ...baseFields,
+  type: z.literal("OTHER"),
+  description: z.string().trim().min(20).max(5000),
+  /** Optional "when would suit you", shown as the preferred date. */
+  startDate: z.coerce.date().optional(),
+});
+
+/**
  * Cross-field checks hang off the union, not off a member: `.refine()` turns a
  * member into a `ZodEffects`, which `discriminatedUnion` refuses to accept.
  */
 export const collaborationInputSchema = z
-  .discriminatedUnion("type", [placementSchema, workshopSchema])
+  .discriminatedUnion("type", [placementSchema, workshopSchema, otherSchema])
   .superRefine((d, ctx) => {
     if (d.type === "WORKSHOP" && d.endDate && d.endDate < d.startDate) {
       ctx.addIssue({

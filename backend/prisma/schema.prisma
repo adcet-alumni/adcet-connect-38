@@ -557,15 +557,27 @@ model JobApplication {
 // =====================================================================
 
 model Achievement {
-  id              String         @id @default(uuid())
-  userId          String
-  title           String
-  description     String
-  category        String? // "Award", "Promotion", "Publication", ...
-  occurredOn      DateTime?
-  imageKey        String? // Cover image (shown in cards / home slider)
-  attachmentKey   String? // Certificate / supporting doc (pdf/doc/image)
-  link            String? // External link (article, certificate URL, ...)
+  id            String    @id @default(uuid())
+  userId        String
+  title         String
+  description   String
+  category      String? // "Award", "Promotion", "Publication", ...
+  occurredOn    DateTime?
+  imageKey      String? // Cover image (shown in cards / home slider)
+  attachmentKey String? // Certificate / supporting doc (pdf/doc/image)
+  link          String? // External link (article, certificate URL, ...)
+
+  /// Set only when an **admin** records an achievement for someone who is not
+  /// on the portal. `userId` then points at the admin who filed it — somebody
+  /// has to own the row — and this is the name the byline shows instead. Null
+  /// for everything an alumnus submits about themselves, and for an admin
+  /// entry filed under a real member's account.
+  achieverName        String?
+  /// The achiever's LinkedIn, when an admin typed one in. Takes precedence
+  /// over the author's own profile link, which is what a member-submitted
+  /// achievement falls back to (subject to their `showLinkedin` switch).
+  achieverLinkedinUrl String?
+
   status          ApprovalStatus @default(PENDING)
   rejectionReason String?
   createdAt       DateTime       @default(now())
@@ -872,9 +884,16 @@ model PostReport {
 /// submit → pending → admin decision lifecycle, so the admin inbox, the
 /// notifications and the RBAC live in one place, and adding a kind is one
 /// enum value plus its own optional columns.
+/// `OTHER` is the catch-all: anything an alumnus offers the college that is
+/// neither a placement drive nor a workshop (a guest lecture, a lab donation, a
+/// mentoring programme). It has no kind-specific columns of its own — the
+/// shared `description` carries the substance, and `startDate` doubles as its
+/// preferred date. Adding a *named* kind later is still an enum value plus a
+/// union member; this one exists so an offer never has to be mislabelled.
 enum CollaborationType {
   PLACEMENT
   WORKSHOP
+  OTHER
 }
 
 /// How the alumnus intends to run the drive / workshop.
@@ -937,9 +956,12 @@ model CollaborationRequest {
   subject              String?
   durationValue        Int?
   durationUnit         DurationUnit?
-  startDate            DateTime?
-  endDate              DateTime?
   expectedParticipants Int?
+
+  // ---- workshop + other ----
+  /// The workshop's start date, and an `OTHER` request's preferred date.
+  startDate DateTime?
+  endDate   DateTime?
 
   reviewedAt   DateTime?
   reviewedById String?

@@ -893,7 +893,7 @@ export const rsvpConfirmationHtml = (
 
 export interface CollaborationEmailData {
   id: string;
-  type: "PLACEMENT" | "WORKSHOP";
+  type: "PLACEMENT" | "WORKSHOP" | "OTHER";
   title: string;
   organization?: string | null;
   departments: string[];
@@ -924,10 +924,17 @@ const collaborationDetails = (c: CollaborationEmailData): string => `
 const COLLABORATION_LABEL: Record<CollaborationEmailData["type"], string> = {
   PLACEMENT: "placement drive",
   WORKSHOP: "workshop",
+  OTHER: "collaboration",
 };
 
-const collaborationPath = (type: CollaborationEmailData["type"]) =>
-  type === "PLACEMENT" ? "placement" : "workshop";
+/** Mirrors the `slug` of each kind in the frontend's `COLLABORATION_KINDS`. */
+const COLLABORATION_PATH: Record<CollaborationEmailData["type"], string> = {
+  PLACEMENT: "placement",
+  WORKSHOP: "workshop",
+  OTHER: "other",
+};
+
+const collaborationPath = (type: CollaborationEmailData["type"]) => COLLABORATION_PATH[type];
 
 /**
  * Sent to the requesting alumnus once an admin decides on their collaboration

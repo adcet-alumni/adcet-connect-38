@@ -1,8 +1,8 @@
 import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
-import { Forbidden, NotFound } from "../../lib/errors.js";
+import { BadRequest, Forbidden, NotFound } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
-import { person } from "../../lib/selects.js";
+import { personSelect } from "../../lib/selects.js";
 import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
 import { sendEmail, sendBulkEmails } from "../../lib/mailer.js";
@@ -36,6 +36,60 @@ const getAuthorityRecipients = async (): Promise<string[]> => {
 
 type AchievementStatus = "PENDING" | "APPROVED" | "REJECTED";
 export type AchievementInput = Omit<Prisma.AchievementUncheckedCreateInput, "userId">;
+
+/**
+ * The author, plus the two profile columns needed to resolve their LinkedIn.
+ * The profile half never leaves the service — `withByline` folds it into a
+ * single `linkedinUrl` and drops it.
+ */
+const authorSelect = (includeEmail = false) => ({
+  select: {
+    ...personSelect(includeEmail),
+    profile: { select: { linkedinUrl: true, showLinkedin: true } },
+  },
+});
+
+type AuthoredRow = {
+  achieverName?: string | null;
+  achieverLinkedinUrl?: string | null;
+  user?: {
+    profile?: { linkedinUrl: string | null; showLinkedin: boolean } | null;
+  } | null;
+};
+
+/**
+ * Resolve the achiever's LinkedIn for a portal reader.
+ *
+ * Two sources, in order: the link an admin typed when recording somebody
+ * else's achievement, then the author's own profile — and the profile link only
+ * if their `showLinkedin` switch allows it, because that switch is a promise
+ * made on the profile page and an achievement is another place the link would
+ * otherwise appear. Neither present is the ordinary case, not an error: the
+ * field comes back `null` and the card simply has no icon.
+ *
+ * Deliberately *not* applied to the public feed and the shareable page — a
+ * profile link is for fellow alumni, not for anonymous visitors.
+ */
+const withByline = <T extends AuthoredRow>(row: T) => {
+  const { achieverLinkedinUrl, user, ...rest } = row;
+  const profile = user?.profile;
+
+  // An `achieverName` means the row is about somebody who is *not* the account
+  // it hangs off — an admin filed it, so `user` is that admin. Only the typed
+  // link can apply; falling through to the profile would put the admin's own
+  // LinkedIn under a stranger's name.
+  const aboutSomeoneElse = row.achieverName != null;
+  const linkedinUrl = aboutSomeoneElse
+    ? achieverLinkedinUrl ?? null
+    : // Otherwise the row is about its own author, and their switch decides —
+      // including over a link an admin typed. "Don't show my LinkedIn" cannot
+      // mean "unless an admin adds it for me".
+      (profile?.showLinkedin ? achieverLinkedinUrl ?? profile.linkedinUrl : null) ?? null;
+
+  const author = user ? { ...user } : user;
+  if (author) delete (author as { profile?: unknown }).profile;
+  return { ...rest, user: author, linkedinUrl };
+};
 
 export const list = async (
   q: PaginationQuery & { q?: string; status?: AchievementStatus; userId?: string; mine?: boolean },
@@ -74,33 +128,87 @@ export const list = async (
     prisma.achievement.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      include: { user: person() },
+      include: { user: authorSelect() },
       ...paginate(q),
     }),
     prisma.achievement.count({ where }),
   ]);
-  return { items, pagination: paginationMeta(total, q) };
+  return { items: items.map(withByline), pagination: paginationMeta(total, q) };
 };
 
+/** An alumnus submitting their own achievement — always PENDING review. */
 export const create = (caller: Caller, data: AchievementInput) =>
   prisma.achievement.create({ data: { ...data, userId: caller.sub } });
+
+export type AdminAchievementInput = AchievementInput & {
+  userId?: string;
+  achieverName?: string;
+  achieverLinkedinUrl?: string;
+};
+
+/**
+ * An admin recording somebody else's achievement.
+ *
+ * Straight to APPROVED and silent: the admin *is* the moderation step, so
+ * queueing their own entry for their own approval would be a click with no
+ * decision in it — and the office adds historical entries in batches, which is
+ * not something to mail the whole authority list about one at a time.
+ *
+ * When `userId` names a member the row is filed under *them*, so it appears on
+ * their achievements exactly as if they had submitted it, and `achieverName`
+ * stays null — their account is the name. Otherwise the row belongs to the
+ * admin (somebody has to own it) and `achieverName` is what the byline reads.
+ */
+export const adminCreate = async (caller: Caller, data: AdminAchievementInput) => {
+  const { userId, achieverName, ...rest } = data;
+
+  if (userId) {
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, status: true },
+    });
+    if (!target) throw NotFound("That alumnus was not found");
+    if (target.status !== "APPROVED") {
+      throw BadRequest("That account is not approved yet");
+    }
+  }
+
+  return prisma.achievement.create({
+    data: {
+      ...rest,
+      userId: userId ?? caller.sub,
+      achieverName: userId ? null : achieverName,
+      status: "APPROVED",
+    },
+  });
+};
 
 export const getById = async (id: string, caller?: Caller) => {
   const item = await prisma.achievement.findUnique({
     where: { id },
     // The author's email is admin-only: this is the detail page an author and
     // any approved member can open, and it renders a byline, not a contact.
-    include: { user: person(isAdmin(caller)) },
+    include: { user: authorSelect(isAdmin(caller)) },
   });
   if (!item) throw NotFound();
-  return item;
+  return withByline(item);
 };
 
 export const update = async (caller: Caller, id: string, data: Prisma.AchievementUpdateInput) => {
   const existing = await prisma.achievement.findUnique({ where: { id } });
   if (!existing) throw NotFound();
   if (existing.userId !== caller.sub && !isAdmin(caller)) throw Forbidden();
-  return prisma.achievement.update({ where: { id }, data });
+
+  // Who an achievement is *about* is an admin's call. An author editing their
+  // own entry may not rename the achiever or point the link elsewhere, so the
+  // fields are dropped rather than trusted — the same reason a role never
+  // arrives from client input.
+  const patch = { ...data };
+  if (!isAdmin(caller)) {
+    delete patch.achieverName;
+    delete patch.achieverLinkedinUrl;
+  }
+  return prisma.achievement.update({ where: { id }, data: patch });
 };
 
 export const remove = async (caller: Caller, id: string) => {
@@ -195,6 +303,9 @@ export const listFeatured = async (limit = 8) =>
       category: true,
       occurredOn: true,
       imageKey: true,
+      // The name, so an admin-recorded achievement is bylined correctly. Not
+      // `achieverLinkedinUrl` — a personal profile link is not public content.
+      achieverName: true,
       user: { select: { firstName: true, lastName: true } },
     },
   });
@@ -216,6 +327,7 @@ export const getPublicById = async (id: string) => {
       attachmentKey: true,
       link: true,
       createdAt: true,
+      achieverName: true,
       user: { select: { firstName: true, lastName: true } },
     },
   });
@@ -229,10 +341,10 @@ export const listPending = async (q: PaginationQuery) => {
     prisma.achievement.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      include: { user: person(true) }, // admin-only moderation queue
+      include: { user: authorSelect(true) }, // admin-only moderation queue
       ...paginate(q),
     }),
     prisma.achievement.count({ where }),
   ]);
-  return { items, pagination: paginationMeta(total, q) };
+  return { items: items.map(withByline), pagination: paginationMeta(total, q) };
 };

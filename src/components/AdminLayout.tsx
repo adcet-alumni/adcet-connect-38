@@ -20,22 +20,24 @@ import { api } from "@/lib/api";
 import NotificationsBell from "@/components/NotificationsBell";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
 import SidebarNavGroup from "@/components/SidebarNavGroup";
-import { COLLABORATION_KIND_LIST } from "@/lib/collaboration";
+import { COLLABORATION_KIND_LIST, type CollaborationType } from "@/lib/collaboration";
 
 interface AdminOverview {
   pendingUsers: number;
   pendingEvents: number;
   pendingJobs: number;
   pendingAchievements: number;
-  pendingPlacements: number;
-  pendingWorkshops: number;
+  /** Keyed by collaboration type — see `COLLABORATION_KINDS`. */
+  pendingCollaboration?: Partial<Record<CollaborationType, number>>;
 }
 
-/** Per-kind pending counts for the Alumni Collaboration group's badges. */
-const collaborationPending = (o?: AdminOverview): Record<string, number | undefined> => ({
-  PLACEMENT: o?.pendingPlacements,
-  WORKSHOP: o?.pendingWorkshops,
-});
+/**
+ * Per-kind pending counts for the Alumni Collaboration group's badges. The
+ * overview returns one map keyed by collaboration type, so a kind added to
+ * `COLLABORATION_KINDS` is badged without touching this file.
+ */
+const collaborationPending = (o?: AdminOverview): Record<string, number | undefined> =>
+  o?.pendingCollaboration ?? {};
 
 const AdminLayout = () => {
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);

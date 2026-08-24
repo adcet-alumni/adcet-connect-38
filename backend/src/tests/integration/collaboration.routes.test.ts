@@ -117,6 +117,44 @@ describe("/collaboration", () => {
     expect(res.status).toBe(422);
   });
 
+  /**
+   * The catch-all kind. It carries no columns of its own, so the description is
+   * what makes it actionable — that is the one field promoted to required, and
+   * the two named kinds' mandatory fields must not leak onto it.
+   */
+  it("201 create other", async () => {
+    prisma.collaborationRequest.create.mockResolvedValueOnce({ id: "c3", type: "OTHER" } as any);
+    const res = await request(app)
+      .post("/api/v1/collaboration")
+      .set("Authorization", bearer(userToken))
+      .send({
+        type: "OTHER",
+        title: "Guest lecture on semiconductor manufacturing",
+        description:
+          "A two-hour session for final-year students on how fabs actually run, with a Q&A.",
+        departments: [],
+        startDate: "2026-11-04",
+      });
+
+    expect(res.status).toBe(201);
+    const data = (prisma.collaborationRequest.create.mock.calls[0][0] as any).data;
+    expect(data.type).toBe("OTHER");
+    // Reuses the workshop's start date column as the preferred date.
+    expect(data.startDate).toBeInstanceOf(Date);
+    // Nothing from the other two kinds comes along.
+    expect(data.subject).toBeUndefined();
+    expect(data.candidatesRequired).toBeUndefined();
+  });
+
+  it("422 an other request with no description — there would be nothing to act on", async () => {
+    const res = await request(app)
+      .post("/api/v1/collaboration")
+      .set("Authorization", bearer(userToken))
+      .send({ type: "OTHER", title: "Something useful", departments: [] });
+    expect(res.status).toBe(422);
+    expect(prisma.collaborationRequest.create).not.toHaveBeenCalled();
+  });
+
   it("422 an unknown department", async () => {
     const res = await request(app)
       .post("/api/v1/collaboration")
