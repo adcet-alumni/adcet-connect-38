@@ -57,14 +57,50 @@ export const FEED_MEDIA = {
   VIDEO_MIME_PREFIX: "video/",
 } as const;
 
+const MB = 1024 * 1024;
+
+/**
+ * Per-scope upload ceiling, in bytes — the server's own limit, not a hint.
+ *
+ * Bytes go browser -> storage, so the API never sees the file and a form check
+ * alone is worth nothing: a caller can skip the form, ask `POST /uploads/presign`
+ * for a URL and push a gigabyte through it. So the declared `size` is validated
+ * here at the presign gate, and the S3 family *signs* it into the URL
+ * (`content-length` is part of `X-Amz-SignedHeaders`), which is what makes the
+ * declaration binding — an upload whose body is a different length fails the
+ * signature check at the bucket. `POST /uploads/direct` re-checks the buffer it
+ * actually received.
+ *
+ * Cloudinary has no equivalent signed size field: its hard ceiling has to be
+ * set on the account/upload preset (see `CloudinaryStorage`). Mirrored by
+ * `UPLOAD_MAX_BYTES` in `src/lib/upload.ts`.
+ */
+export const UPLOAD_MAX_BYTES: Record<UploadScope, number> = {
+  avatar: 10 * MB,
+  banner: 10 * MB,
+  event: 10 * MB,
+  achievement: 10 * MB,
+  receipt: 10 * MB,
+  resume: 10 * MB,
+  "event-attachment": 10 * MB,
+  "job-attachment": 10 * MB,
+  // The composer offers 15 MB per file — see `MAX_ATTACHMENT_MB` in BulkEmailDialog.
+  "email-attachment": 15 * MB,
+  post: 10 * MB,
+  // A newsletter is a print-quality PDF; the rest are single files off a phone.
+  newsletter: 25 * MB,
+  "newsletter-cover": 10 * MB,
+  gallery: 10 * MB,
+  collaboration: 10 * MB,
+};
+
 /**
  * Alumni Collaboration attachment ceiling — one file per request, 10 MB.
- *
- * Bytes go browser -> storage, so nothing on the server sees the file: the
- * request forms enforce this before presigning. Mirrored by
+ * The request forms check it for immediate feedback; `UPLOAD_MAX_BYTES` above
+ * is what actually enforces it. Mirrored by
  * `COLLABORATION_ATTACHMENT_MAX_BYTES` in `src/lib/collaboration.ts`.
  */
-export const COLLABORATION_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const COLLABORATION_ATTACHMENT_MAX_BYTES = UPLOAD_MAX_BYTES.collaboration;
 
 /**
  * The official ADCET department names — the single source of truth for every

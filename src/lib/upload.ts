@@ -7,22 +7,11 @@
  * Bytes always go straight from the browser to storage — never through the API.
  */
 import { api } from "@/lib/api";
+import { MB, UPLOAD_MAX_BYTES, type UploadScope } from "@/lib/uploadLimits";
 
-export type UploadScope =
-  | "avatar"
-  | "banner"
-  | "event"
-  | "achievement"
-  | "receipt"
-  | "resume"
-  | "event-attachment"
-  | "job-attachment"
-  | "email-attachment"
-  | "post"
-  | "newsletter"
-  | "newsletter-cover"
-  | "gallery"
-  | "collaboration";
+export { UPLOAD_MAX_BYTES } from "@/lib/uploadLimits";
+
+export type { UploadScope } from "@/lib/uploadLimits";
 
 export type PresignResult = {
   uploadUrl: string;
@@ -36,12 +25,19 @@ export type PresignResult = {
 
 const contentTypeOf = (file: File) => file.type || "application/octet-stream";
 
-/** Ask the API for a presigned destination for `file` under `scope`. */
+/**
+ * Ask the API for a presigned destination for `file` under `scope`.
+ *
+ * `size` is not decoration: the backend checks it against the scope's ceiling
+ * and (on S3/MinIO) signs it into the upload URL, so the bytes that follow
+ * must match this number exactly.
+ */
 export const presignUpload = (file: File, scope: UploadScope) =>
   api.post<PresignResult>("/uploads/presign", {
     fileName: file.name,
     contentType: contentTypeOf(file),
     scope,
+    size: file.size,
   });
 
 /** Send the bytes to a destination returned by `presignUpload`. */
@@ -65,6 +61,10 @@ export const uploadToPresigned = async (presigned: PresignResult, file: File): P
 
 /** Presign + upload in one step, returning the object key to persist. */
 export const uploadFile = async (file: File, scope: UploadScope): Promise<string> => {
+  const max = UPLOAD_MAX_BYTES[scope];
+  if (max && file.size > max) {
+    throw new Error(`"${file.name}" is too large — the limit is ${Math.round(max / MB)} MB`);
+  }
   const presigned = await presignUpload(file, scope);
   await uploadToPresigned(presigned, file);
   return presigned.key;

@@ -3,6 +3,8 @@
  * All templates share a consistent header/footer wrapper with portal branding.
  */
 
+import { formatDay } from "./dates.js";
+
 const PORTAL_URL = process.env.CORS_ORIGIN || "http://localhost:8080";
 
 /** Escape HTML special characters to prevent XSS in email templates. */
@@ -624,7 +626,7 @@ const achievementDetails = (a: AchievementEmailData): string => {
         ${a.occurredOn ? `
         <tr>
           <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #6c757d; font-size: 13px;">Date</td>
-          <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #2c3e50; font-size: 14px;">${new Date(a.occurredOn).toLocaleDateString()}</td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #2c3e50; font-size: 14px;">${formatDay(a.occurredOn)}</td>
         </tr>` : ""}
         ${a.link ? `
         <tr>

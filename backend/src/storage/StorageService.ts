@@ -12,6 +12,12 @@ export interface PresignUploadInput {
   scope: UploadScope;
   /** Optional owner id used to namespace the object key. */
   ownerId?: string;
+  /**
+   * Exact byte length of the object. Adapters that can bind it (the S3 family
+   * signs `content-length` into the URL) must do so — it is what stops a
+   * client from presigning a small file and then pushing a huge one.
+   */
+  size?: number;
 }
 
 export interface PresignUploadResult {

@@ -10,9 +10,9 @@
  * between the route and the storage adapter.
  */
 import { prisma } from "../../lib/prisma.js";
-import { Forbidden, NotFound } from "../../lib/errors.js";
+import { BadRequest, Forbidden, NotFound } from "../../lib/errors.js";
 import { getStorage } from "../../storage/index.js";
-import { UPLOAD_SCOPES, type UploadScope } from "../../config/constants.js";
+import { UPLOAD_SCOPES, UPLOAD_MAX_BYTES, type UploadScope } from "../../config/constants.js";
 
 /**
  * Scopes whose objects are *not* publicly delivered. Everything else is
@@ -84,13 +84,25 @@ const authorizeWrite = (caller: Caller, key: string): void => {
 
 export const presignUpload = (
   ownerId: string,
-  input: { fileName: string; contentType: string; scope: UploadScope },
+  input: { fileName: string; contentType: string; scope: UploadScope; size: number },
 ) => getStorage().presignUpload({ ...input, ownerId });
 
+/**
+ * Upload through the API. Here the bytes are in hand, so the scope ceiling is
+ * checked against what actually arrived rather than against a declared size.
+ */
 export const uploadDirect = (
   ownerId: string,
   input: { fileName: string; contentType: string; scope: UploadScope; body: Buffer },
-) => getStorage().upload({ ...input, ownerId });
+) => {
+  const max = UPLOAD_MAX_BYTES[input.scope];
+  if (max != null && input.body.length > max) {
+    throw BadRequest(
+      `File is too large — the limit for ${input.scope} uploads is ${Math.round(max / (1024 * 1024))} MB`,
+    );
+  }
+  return getStorage().upload({ ...input, ownerId, size: input.body.length });
+};
 
 export const presignDownload = async (caller: Caller, key: string) => {
   await authorizeRead(caller, key);

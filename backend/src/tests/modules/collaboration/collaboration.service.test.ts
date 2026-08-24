@@ -191,6 +191,33 @@ describe("modules/collaboration/service", () => {
         .rejectionReason).toBeNull();
     });
 
+    /**
+     * `driveDate` is a calendar day stored at midnight UTC. Formatted in the
+     * server's own zone it renders as the 9th anywhere west of UTC, telling
+     * the alumnus a date they never picked.
+     */
+    it("emails the preferred date the alumnus actually picked, whatever the server's zone", async () => {
+      const prevTz = process.env.TZ;
+      process.env.TZ = "Pacific/Honolulu";
+      try {
+        prismaMock.collaborationRequest.findUnique.mockResolvedValueOnce({ id: "c1" } as any);
+        prismaMock.collaborationRequest.update.mockResolvedValueOnce({
+          ...row,
+          driveDate: new Date("2026-09-10T00:00:00.000Z"),
+          status: "APPROVED",
+        } as any);
+
+        await svc.moderate("admin-1", "c1", "APPROVED");
+
+        // The detail rows live in the HTML half of the mail.
+        const mail = sendEmailMock.mock.calls[0][0] as any;
+        expect(mail.html).toMatch(/10 Sept? 2026/);
+        expect(mail.html).not.toMatch(/\b9 Sept? 2026/);
+      } finally {
+        process.env.TZ = prevTz;
+      }
+    });
+
     it("404s on an unknown request", async () => {
       prismaMock.collaborationRequest.findUnique.mockResolvedValueOnce(null);
       await expect(svc.moderate("admin-1", "nope", "APPROVED")).rejects.toMatchObject({

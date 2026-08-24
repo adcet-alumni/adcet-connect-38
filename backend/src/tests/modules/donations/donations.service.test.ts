@@ -291,6 +291,32 @@ describe("donations.service — topDonors", () => {
     expect(prismaMock.user.findMany).not.toHaveBeenCalled();
   });
 
+  /**
+   * Clearing the cache from *inside* the transaction leaves a window: a public
+   * read that lands after the clear but before the commit repopulates it from
+   * pre-commit rows, and the stale ranking then sits there for five minutes.
+   * The clear has to happen once the write is durable.
+   */
+  it("drops the cache after the commit, so a read racing the transaction cannot re-stale it", async () => {
+    prismaMock.donation.groupBy.mockResolvedValue(groupedRows);
+    prismaMock.user.findMany.mockResolvedValue(userRows);
+    prismaMock.donation.update.mockResolvedValue({ id: "d-1", amount: 5000, status: "RECEIVED" });
+    prismaMock.donationLedgerEntry.create.mockResolvedValue({});
+    // A visitor loads the landing page after the write has been issued but
+    // before it commits — the exact window an in-transaction clear leaves open.
+    prismaMock.$transaction.mockImplementation(async (fn: any) => {
+      const result = await fn(prismaMock);
+      await svc.topDonorsCached(12);
+      return result;
+    });
+
+    await svc.updateDonationStatus("admin-1", "d-1", { status: "RECEIVED" } as any);
+    expect(prismaMock.donation.groupBy).toHaveBeenCalledTimes(1);
+
+    await svc.topDonorsCached(12);
+    expect(prismaMock.donation.groupBy).toHaveBeenCalledTimes(2);
+  });
+
   it("caches per limit, and a settled payment drops the cache", async () => {
     prismaMock.donation.groupBy.mockResolvedValue(groupedRows);
     prismaMock.user.findMany.mockResolvedValue(userRows);

@@ -159,13 +159,13 @@ export const createOrder = async (
  * Idempotently transition a donation to RECEIVED. Safe to call from both the
  * frontend verify-callback and the Razorpay webhook — the first one wins.
  */
-const markReceived = (
+const markReceived = async (
   id: string,
   paymentId: string,
   signature: string | null,
   method: string | null,
-) =>
-  prisma.$transaction(async (tx) => {
+) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const d = await tx.donation.findUnique({ where: { id } });
     if (!d) return null;
     if (d.status === "RECEIVED") return d;
@@ -189,10 +189,16 @@ const markReceived = (
         note: paymentId ? `Payment ${paymentId}` : null,
       },
     });
-    // Money just landed: the public honour roll may have a new leader.
-    invalidateTopDonors();
     return updated;
   });
+
+  // Money just landed: the public honour roll may have a new leader. Dropped
+  // *after* the commit — clearing inside the transaction leaves a window in
+  // which a concurrent public read repopulates the cache from pre-commit data
+  // and pins the stale ranking for another five minutes.
+  invalidateTopDonors();
+  return updated;
+};
 
 /**
  * Generate the PDF receipt, store it, and email it to the donor — exactly once.
@@ -479,12 +485,12 @@ export const myDonations = (userId: string) =>
     include: { campaign: true },
   });
 
-export const updateDonationStatus = (
+export const updateDonationStatus = async (
   actorId: string,
   id: string,
   data: { status: DonationStatus; receiptKey?: string; note?: string },
-) =>
-  prisma.$transaction(async (tx) => {
+) => {
+  const donation = await prisma.$transaction(async (tx) => {
     const donation = await tx.donation.update({
       where: { id },
       data: { status: data.status, receiptKey: data.receiptKey },
@@ -501,7 +507,11 @@ export const updateDonationStatus = (
         note: data.note ?? null,
       },
     });
-    // An admin moving a gift in or out of RECEIVED changes the honour roll.
-    invalidateTopDonors();
     return donation;
   });
+
+  // An admin moving a gift in or out of RECEIVED changes the honour roll —
+  // after the commit, for the same reason as `markReceived`.
+  invalidateTopDonors();
+  return donation;
+};

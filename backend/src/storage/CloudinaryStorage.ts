@@ -115,6 +115,13 @@ export class CloudinaryStorage implements StorageService {
     );
   }
 
+  /**
+   * Note on size: unlike the S3 family there is no per-request size field that
+   * can be signed here, so `UPLOAD_MAX_BYTES` is enforced at the presign gate
+   * (`uploads.validators.ts`) and the hard ceiling has to be configured on the
+   * Cloudinary side — account plan limit, or an upload preset with a maximum
+   * file size. Don't assume this adapter bounds an upload on its own.
+   */
   async presignUpload(input: PresignUploadInput): Promise<PresignUploadResult> {
     const key = buildObjectKey(input);
     const resourceType = resourceTypeForKey(key);

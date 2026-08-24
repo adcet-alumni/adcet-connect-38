@@ -93,6 +93,16 @@ export class S3Storage implements StorageService {
     }
   }
 
+  /**
+   * A presigned PUT is a bearer capability, so its size has to be part of what
+   * was signed — otherwise the 10 MB the form promised is advisory and the
+   * holder of the URL can push a gigabyte. Passing `ContentLength` and naming
+   * `content-length` as a signable header puts it in `X-Amz-SignedHeaders`:
+   * S3/MinIO then recompute the signature over the length the client actually
+   * sends, and a mismatched body is rejected at the bucket. The browser sets
+   * `Content-Length` itself for a `File` body, so `src/lib/upload.ts` needs no
+   * header of its own — it only has to declare the same number at presign time.
+   */
   async presignUpload(input: PresignUploadInput): Promise<PresignUploadResult> {
     await this.ensureReady();
     const key = buildObjectKey(input);
@@ -100,8 +110,14 @@ export class S3Storage implements StorageService {
       Bucket: this.bucket,
       Key: key,
       ContentType: input.contentType,
+      ...(input.size != null ? { ContentLength: input.size } : {}),
     });
-    const uploadUrl = await getSignedUrl(this.client, cmd, { expiresIn: env.S3_PRESIGN_TTL });
+    const uploadUrl = await getSignedUrl(this.client, cmd, {
+      expiresIn: env.S3_PRESIGN_TTL,
+      ...(input.size != null
+        ? { signableHeaders: new Set(["host", "content-length"]) }
+        : {}),
+    });
     return { uploadUrl, key, publicUrl: this.publicUrl(key), expiresIn: env.S3_PRESIGN_TTL };
   }
 

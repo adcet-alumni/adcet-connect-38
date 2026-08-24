@@ -11,6 +11,7 @@
  * page component.
  */
 import { api } from "@/lib/api";
+import { UPLOAD_MAX_BYTES } from "@/lib/upload";
 
 export const COLLABORATION_TYPES = ["PLACEMENT", "WORKSHOP"] as const;
 export type CollaborationType = (typeof COLLABORATION_TYPES)[number];
@@ -20,11 +21,12 @@ export type CollaborationMode = "ON_CAMPUS" | "ONLINE" | "HYBRID";
 export type DurationUnit = "HOURS" | "DAYS";
 
 /**
- * One file per request, 10 MB. Mirrors `COLLABORATION_ATTACHMENT_MAX_BYTES` in
- * the backend's `config/constants.ts`. Bytes go browser → storage, so the form
- * is the only place that can enforce this — check before presigning.
+ * One file per request, 10 MB. The form checks it so the alumnus gets an
+ * immediate message instead of a failed upload; the ceiling itself is enforced
+ * server-side — see `UPLOAD_MAX_BYTES` in `@/lib/upload` and its mirror in the
+ * backend's `config/constants.ts`.
  */
-export const COLLABORATION_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const COLLABORATION_ATTACHMENT_MAX_BYTES = UPLOAD_MAX_BYTES.collaboration;
 
 export const COLLABORATION_ATTACHMENT_ACCEPT =
   "application/pdf,image/*,.doc,.docx,.ppt,.pptx,.xls,.xlsx";

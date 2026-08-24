@@ -5,6 +5,7 @@
 import { jest } from "@jest/globals";
 import request from "supertest";
 import { createPrismaDeepMock, makeToken, bearer } from "../helpers/integrationApp.js";
+import { UPLOAD_MAX_BYTES } from "../../config/constants.js";
 
 const prisma = createPrismaDeepMock();
 jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma }));
@@ -38,9 +39,64 @@ describe("/uploads", () => {
     const res = await request(app)
       .post("/api/v1/uploads/presign")
       .set("Authorization", bearer(token))
-      .send({ fileName: "a.png", contentType: "image/png", scope: "avatar" });
+      .send({ fileName: "a.png", contentType: "image/png", scope: "avatar", size: 1024 });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("key");
+  });
+
+  /**
+   * The bytes never pass through the API, so the declared size is the only
+   * thing it can check — and checking it is the point: without this a caller
+   * skips the form, asks for a URL and pushes a file of any size at storage.
+   */
+  it("422 presign without a declared size", async () => {
+    const res = await request(app)
+      .post("/api/v1/uploads/presign")
+      .set("Authorization", bearer(token))
+      .send({ fileName: "a.png", contentType: "image/png", scope: "avatar" });
+    expect(res.status).toBe(422);
+  });
+
+  it("422 presign over the scope's ceiling", async () => {
+    const res = await request(app)
+      .post("/api/v1/uploads/presign")
+      .set("Authorization", bearer(token))
+      .send({
+        fileName: "a.pdf",
+        contentType: "application/pdf",
+        scope: "collaboration",
+        size: UPLOAD_MAX_BYTES.collaboration + 1,
+      });
+    expect(res.status).toBe(422);
+  });
+
+  it("allows a file at exactly the ceiling", async () => {
+    const res = await request(app)
+      .post("/api/v1/uploads/presign")
+      .set("Authorization", bearer(token))
+      .send({
+        fileName: "a.pdf",
+        contentType: "application/pdf",
+        scope: "collaboration",
+        size: UPLOAD_MAX_BYTES.collaboration,
+      });
+    expect(res.status).toBe(200);
+  });
+
+  /** Here the bytes *are* in hand, so the ceiling is checked against them. */
+  it("400 direct upload whose body exceeds the scope ceiling", async () => {
+    const res = await request(app)
+      .post("/api/v1/uploads/direct")
+      .query({
+        fileName: "a.png",
+        contentType: "image/png",
+        scope: "avatar",
+        size: 16,
+      })
+      .set("Authorization", bearer(token))
+      .set("Content-Type", "image/png")
+      .send(Buffer.alloc(UPLOAD_MAX_BYTES.avatar + 1));
+    expect(res.status).toBe(400);
   });
 
   it("422 presign-download missing key", async () => {

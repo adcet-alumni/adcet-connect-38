@@ -92,13 +92,22 @@ const AdminLayout = () => {
   };
 
   const pending = collaborationPending(overview);
+  // Counts stay numeric here — `SidebarNavGroup` sums them for the collapsed
+  // heading and caps at render. Handing it `fmt(...)`'s "99+" made that sum NaN.
   const collaborationItems = COLLABORATION_KIND_LIST.map((k) => ({
     label: k.label,
     path: `/admin/collaboration/${k.slug}`,
-    badge: fmt(pending[k.type]),
+    badge: pending[k.type],
   }));
 
-  const SidebarContent = () => (
+  /**
+   * An element, not a nested component. Declaring `const SidebarContent = () =>`
+   * inside the render body gives React a brand-new component type on every
+   * render, which unmounts and remounts the whole subtree — and the overview
+   * query refetches every 60s, so an expanded nav group collapsed itself once a
+   * minute. Rendering `{sidebar}` keeps the same instances and their state.
+   */
+  const sidebar = (
     <nav className="p-3 space-y-1">
       {sidebarItems.map((item) =>
         (item as { group?: boolean }).group ? (
@@ -216,7 +225,7 @@ const AdminLayout = () => {
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <SidebarContent />
+                {sidebar}
               </motion.aside>
             </>
           )}
@@ -232,7 +241,7 @@ const AdminLayout = () => {
               transition={{ duration: 0.2 }}
               className="border-r border-border bg-card overflow-hidden flex-shrink-0 hidden md:block"
             >
-              <SidebarContent />
+              {sidebar}
             </motion.aside>
           )}
         </AnimatePresence>

@@ -14,6 +14,7 @@ import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
 import { sendEmail } from "../../lib/mailer.js";
 import { logger } from "../../lib/logger.js";
+import { formatDay } from "../../lib/dates.js";
 import {
   collaborationDecisionEmail,
   type CollaborationEmailData,
@@ -125,8 +126,8 @@ export const pendingCounts = async (): Promise<Record<CollaborationTypeName, num
   return counts;
 };
 
-const dateText = (d: Date | null) =>
-  d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "";
+/** Day-only columns are rendered in UTC — see `lib/dates.ts`. */
+const dateText = (d: Date | null) => formatDay(d);
 
 const MODE_LABEL: Record<string, string> = {
   ON_CAMPUS: "On campus",
