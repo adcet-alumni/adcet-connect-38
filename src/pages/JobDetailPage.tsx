@@ -38,7 +38,8 @@ interface JobDetail {
   createdAt: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   isClosed?: boolean;
-  createdBy?: { id: string; firstName: string; lastName: string; email: string } | null;
+  /** Name only — the API sends the poster's email to admins alone. */
+  createdBy?: { id: string; firstName: string; lastName: string } | null;
   _count?: { applications: number };
 }
 

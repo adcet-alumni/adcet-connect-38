@@ -116,6 +116,53 @@ describe("/profiles/:userId", () => {
   });
 
   /**
+   * A member sees another member's *page*, not their row. This endpoint used to
+   * answer with the whole `Profile` plus `user.email`, which made it a
+   * directory of phone numbers for anyone who read the API.
+   */
+  it("gives a member the page fields only — no phone, birthday or email", async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({ id: "user-1", status: "APPROVED" } as any);
+    prisma.profile.findUnique.mockResolvedValueOnce({ userId: "u-other", showLinkedin: true } as any);
+
+    await request(app).get("/api/v1/profiles/u-other").set("Authorization", bearer(token));
+
+    const args = prisma.profile.findUnique.mock.calls[0][0] as any;
+    // A select, not an include: the row is opt-in field by field.
+    expect(args.include).toBeUndefined();
+    for (const withheld of ["phone", "birthDay", "birthMonth", "rollNumber", "admissionYear", "locationId"]) {
+      expect(args.select).not.toHaveProperty(withheld);
+    }
+    expect(args.select.user.select.email).toBe(false);
+    // What a profile page is actually for is still there.
+    for (const shown of ["department", "graduationYear", "currentCompany", "bio", "experiences", "skills"]) {
+      expect(args.select).toHaveProperty(shown);
+    }
+  });
+
+  it("still hands an admin the whole row — they administer these accounts", async () => {
+    const adminToken = makeToken({ sub: "admin-1", roles: ["ADMIN"] });
+    prisma.user.findUnique.mockResolvedValueOnce({ id: "admin-1", status: "APPROVED" } as any);
+    prisma.profile.findUnique.mockResolvedValueOnce({ userId: "u-other", phone: "9999" } as any);
+
+    const res = await request(app)
+      .get("/api/v1/profiles/u-other")
+      .set("Authorization", bearer(adminToken));
+
+    expect(res.status).toBe(200);
+    expect((prisma.profile.findUnique.mock.calls[0][0] as any).include).toBeDefined();
+    expect(res.body.phone).toBe("9999");
+  });
+
+  it("hands the owner their own row, asking about themselves", async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({ id: "user-1", status: "APPROVED" } as any);
+    prisma.profile.findUnique.mockResolvedValueOnce({ userId: "user-1", phone: "8888" } as any);
+
+    const res = await request(app).get("/api/v1/profiles/user-1").set("Authorization", bearer(token));
+
+    expect(res.body.phone).toBe("8888");
+  });
+
+  /**
    * `showLinkedin` is the owner's veto, so it has to hold on every surface that
    * hands the link to somebody else. Honouring it only on the directory card
    * would leave this endpoint as the way around it.

@@ -25,7 +25,8 @@ interface EventDetail {
   attachmentKey?: string | null;
   coverKey?: string | null;
   status: "PENDING" | "APPROVED" | "REJECTED";
-  createdBy?: { id: string; firstName: string; lastName: string; email: string } | null;
+  /** Name only — the API sends the poster's email to admins alone. */
+  createdBy?: { id: string; firstName: string; lastName: string } | null;
   _count?: { rsvps: number };
 }
 

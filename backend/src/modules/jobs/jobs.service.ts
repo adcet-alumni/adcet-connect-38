@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
 import { Forbidden, NotFound } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
+import { person } from "../../lib/selects.js";
 import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
 import { sendEmail, sendBulkEmails, type EmailAttachment } from "../../lib/mailer.js";
@@ -54,7 +55,8 @@ export const list = async (
       orderBy: { createdAt: "desc" },
       include: {
         _count: { select: { applications: true } },
-        createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        // The poster's email is admin-only; a member applies through the portal.
+        createdBy: person(isAdmin(caller)),
       },
       ...paginate(q),
     }),
@@ -63,12 +65,12 @@ export const list = async (
   return { items, pagination: paginationMeta(total, q) };
 };
 
-export const getById = async (id: string) => {
+export const getById = async (id: string, caller?: Caller) => {
   const job = await prisma.job.findUnique({
     where: { id },
     include: {
       _count: { select: { applications: true } },
-      createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+      createdBy: person(isAdmin(caller)),
     },
   });
   if (!job) throw NotFound();
@@ -394,7 +396,8 @@ export const listPending = async (q: PaginationQuery) => {
     prisma.job.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      include: { createdBy: { select: { id: true, firstName: true, lastName: true, email: true } } },
+      // Admin-only route: the moderator may need to write to the poster.
+      include: { createdBy: person(true) },
       ...paginate(q),
     }),
     prisma.job.count({ where }),

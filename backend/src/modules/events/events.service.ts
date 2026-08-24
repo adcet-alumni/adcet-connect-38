@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
 import { Forbidden, NotFound } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
+import { person } from "../../lib/selects.js";
 import type { AppRoleName } from "../../config/constants.js";
 import { sendBulkEmails } from "../../lib/mailer.js";
 import { eventNotificationEmail, rsvpConfirmationHtml } from "../../lib/email-templates.js";
@@ -51,7 +52,8 @@ export const list = async (
       orderBy: { startsAt: q.upcoming ? "asc" : "desc" },
       include: {
         _count: { select: { rsvps: true } },
-        createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        // An organiser's email is admin-only — the card shows their name.
+        createdBy: person(isAdmin(caller)),
         chapter: { select: { id: true, slug: true, name: true } },
       },
       ...paginate(q),
@@ -61,12 +63,12 @@ export const list = async (
   return { items, pagination: paginationMeta(total, q) };
 };
 
-export const getById = async (id: string) => {
+export const getById = async (id: string, caller?: Caller) => {
   const event = await prisma.event.findUnique({
     where: { id },
     include: {
       _count: { select: { rsvps: true } },
-      createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+      createdBy: person(isAdmin(caller)),
       chapter: { select: { id: true, slug: true, name: true } },
     },
   });

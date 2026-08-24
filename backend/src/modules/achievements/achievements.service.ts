@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
 import { Forbidden, NotFound } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
+import { person } from "../../lib/selects.js";
 import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
 import { sendEmail, sendBulkEmails } from "../../lib/mailer.js";
@@ -73,7 +74,7 @@ export const list = async (
     prisma.achievement.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      include: { user: { select: { id: true, firstName: true, lastName: true } } },
+      include: { user: person() },
       ...paginate(q),
     }),
     prisma.achievement.count({ where }),
@@ -84,10 +85,12 @@ export const list = async (
 export const create = (caller: Caller, data: AchievementInput) =>
   prisma.achievement.create({ data: { ...data, userId: caller.sub } });
 
-export const getById = async (id: string) => {
+export const getById = async (id: string, caller?: Caller) => {
   const item = await prisma.achievement.findUnique({
     where: { id },
-    include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+    // The author's email is admin-only: this is the detail page an author and
+    // any approved member can open, and it renders a byline, not a contact.
+    include: { user: person(isAdmin(caller)) },
   });
   if (!item) throw NotFound();
   return item;
@@ -226,7 +229,7 @@ export const listPending = async (q: PaginationQuery) => {
     prisma.achievement.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+      include: { user: person(true) }, // admin-only moderation queue
       ...paginate(q),
     }),
     prisma.achievement.count({ where }),
