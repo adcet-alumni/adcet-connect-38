@@ -34,7 +34,8 @@ describe("presignSchema", () => {
   });
 
   it("requires a declared size", () => {
-    const { size, ...withoutSize } = body();
+    const withoutSize = { ...body() } as Record<string, unknown>;
+    delete withoutSize.size;
     expect(presignSchema.safeParse(withoutSize).success).toBe(false);
   });
 

@@ -55,6 +55,48 @@ describe("/profiles/me", () => {
   });
 });
 
+/**
+ * A PATCH names the fields it changes. Everything it does not name has to
+ * survive it: the transforms behind `updateProfileSchema` used to fold an
+ * absent key into `null`, so `PATCH { showLinkedin: false }` also erased the
+ * member's department, batch, birthday and every link on file.
+ */
+describe("/profiles/me — a partial update stays partial", () => {
+  it("touches only the fields the request names", async () => {
+    prisma.profile.upsert.mockResolvedValueOnce({ userId: "user-1" } as any);
+
+    const res = await request(app)
+      .patch("/api/v1/profiles/me")
+      .set("Authorization", bearer(token))
+      .send({ showLinkedin: false });
+
+    expect(res.status).toBe(200);
+    const data = (prisma.profile.upsert.mock.calls[0][0] as any).update;
+    expect(data).toEqual({ showLinkedin: false });
+    for (const untouched of [
+      "department", "graduationYear", "admissionYear", "degree",
+      "birthDay", "birthMonth", "linkedinUrl", "githubUrl", "twitterUrl",
+      "websiteUrl", "bio", "phone", "city", "country",
+    ]) {
+      expect(data).not.toHaveProperty(untouched);
+    }
+  });
+
+  it("still clears a field the request sends empty", async () => {
+    prisma.profile.upsert.mockResolvedValueOnce({ userId: "user-1" } as any);
+
+    await request(app)
+      .patch("/api/v1/profiles/me")
+      .set("Authorization", bearer(token))
+      .send({ linkedinUrl: "", graduationYear: "", city: null });
+
+    const data = (prisma.profile.upsert.mock.calls[0][0] as any).update;
+    expect(data.linkedinUrl).toBeNull();
+    expect(data.graduationYear).toBeNull();
+    expect(data.city).toBeNull();
+  });
+});
+
 describe("/profiles/:userId", () => {
   it("403 when caller is not APPROVED", async () => {
     prisma.user.findUnique.mockResolvedValueOnce({ id: "user-1", status: "PENDING" } as any);
@@ -71,6 +113,51 @@ describe("/profiles/:userId", () => {
       .get("/api/v1/profiles/u-other")
       .set("Authorization", bearer(token));
     expect(res.status).toBe(404);
+  });
+
+  /**
+   * `showLinkedin` is the owner's veto, so it has to hold on every surface that
+   * hands the link to somebody else. Honouring it only on the directory card
+   * would leave this endpoint as the way around it.
+   */
+  it("withholds the LinkedIn link of a member who switched it off", async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({ id: "user-1", status: "APPROVED" } as any);
+    prisma.profile.findUnique.mockResolvedValueOnce({
+      userId: "u-other",
+      linkedinUrl: "https://linkedin.com/in/rohit",
+      showLinkedin: false,
+    } as any);
+
+    const res = await request(app)
+      .get("/api/v1/profiles/u-other")
+      .set("Authorization", bearer(token));
+
+    expect(res.status).toBe(200);
+    expect(res.body.linkedinUrl).toBeNull();
+  });
+
+  it("still shows it to the owner, and to anyone when it is on", async () => {
+    prisma.user.findUnique.mockResolvedValue({ id: "user-1", status: "APPROVED" } as any);
+
+    prisma.profile.findUnique.mockResolvedValueOnce({
+      userId: "user-1",
+      linkedinUrl: "https://linkedin.com/in/self",
+      showLinkedin: false,
+    } as any);
+    const own = await request(app)
+      .get("/api/v1/profiles/user-1")
+      .set("Authorization", bearer(token));
+    expect(own.body.linkedinUrl).toBe("https://linkedin.com/in/self");
+
+    prisma.profile.findUnique.mockResolvedValueOnce({
+      userId: "u-other",
+      linkedinUrl: "https://linkedin.com/in/asha",
+      showLinkedin: true,
+    } as any);
+    const other = await request(app)
+      .get("/api/v1/profiles/u-other")
+      .set("Authorization", bearer(token));
+    expect(other.body.linkedinUrl).toBe("https://linkedin.com/in/asha");
   });
 });
 

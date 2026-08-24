@@ -3,22 +3,34 @@ import { departmentSchema } from "../../lib/departments.js";
 import { DEGREE_VALUES } from "../../config/constants.js";
 
 /**
- * Profile update fields are all optional. The frontend often passes back the
- * raw values it loaded (which can be `null` for empty DB columns, or `""`
- * after the user clears an input). We accept both and normalize to `undefined`
- * so Prisma simply leaves them unchanged or stores NULL appropriately.
+ * Profile update fields are all optional. The frontend passes back the raw
+ * values it loaded (which can be `null` for empty DB columns, or `""` after
+ * the user clears an input), so each field has three meanings and all three
+ * must survive the parse:
+ *
+ *   - **absent** → `undefined`, and Prisma leaves the column alone;
+ *   - `""` or `null` → `null`, and the column is cleared;
+ *   - a value → stored.
+ *
+ * Keeping "absent" distinct is what makes a partial PATCH partial. A transform
+ * that folds `undefined` into `null` (`v == null` — the loose comparison — does
+ * exactly that) turns `PATCH { showLinkedin: false }` into a request that also
+ * erases the member's department, batch, birthday and every link they had on
+ * file. Compare strictly here, always.
  */
+const blank = (v: unknown) => v === "" || v === null;
+
 const optionalString = (max: number) =>
   z
     .union([z.string().max(max), z.null()])
     .optional()
-    .transform((v) => (v === "" || v === null ? null : v));
+    .transform((v) => (v === undefined ? undefined : blank(v) ? null : v));
 
 const optionalUrl = (max = 500) =>
   z
     .union([z.string().max(max), z.null()])
     .optional()
-    .transform((v) => (v === "" || v == null ? null : v))
+    .transform((v) => (v === undefined ? undefined : blank(v) ? null : v))
     .refine((v) => v == null || /^https?:\/\//i.test(v), { message: "Must be a valid URL" });
 
 /** A clearable 1..max integer, used for the birthday's day and month parts. */
@@ -26,12 +38,12 @@ const optionalDayOrMonth = (max: number) =>
   z
     .union([z.coerce.number().int().min(1).max(max), z.null(), z.literal("")])
     .optional()
-    .transform((v) => (v === "" || v == null ? null : (v as number)));
+    .transform((v) => (v === undefined ? undefined : blank(v) ? null : (v as number)));
 
 const optionalYear = z
   .union([z.coerce.number().int().min(1980).max(2100), z.null(), z.literal("")])
   .optional()
-  .transform((v) => (v === "" || v == null ? null : (v as number)));
+  .transform((v) => (v === undefined ? undefined : blank(v) ? null : (v as number)));
 
 export const updateProfileSchema = z.object({
   bio: optionalString(2000),
@@ -41,15 +53,17 @@ export const updateProfileSchema = z.object({
   city: optionalString(120),
   country: optionalString(120),
   linkedinUrl: optionalUrl(),
+  /** The owner's veto on showing that link to other alumni. */
+  showLinkedin: z.boolean().optional(),
   githubUrl: optionalUrl(),
   twitterUrl: optionalUrl(),
   websiteUrl: optionalUrl(),
   // Clearable, but when set it must be one of the official department names —
   // free text here would reintroduce the spelling drift the rename fixed.
   department: z.union([departmentSchema, z.null(), z.literal("")]).optional()
-    .transform((v) => (v === "" || v == null ? null : v)),
+    .transform((v) => (v === undefined ? undefined : blank(v) ? null : v)),
   degree: z.union([z.enum(DEGREE_VALUES), z.null(), z.literal("")]).optional()
-    .transform((v) => (v === "" || v == null ? null : v)),
+    .transform((v) => (v === undefined ? undefined : blank(v) ? null : v)),
   admissionYear: optionalYear,
   graduationYear: optionalYear,
   // Birthday, day + month only — no year is ever collected.

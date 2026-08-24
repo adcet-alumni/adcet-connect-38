@@ -1,5 +1,8 @@
 /**
  * Integration tests for /api/v1/alumni — directory search.
+ *
+ * The default order is per-viewer relevance, which asks per band; the
+ * where-builder cases below pin `sort=name` so they see one plain query.
  */
 import { jest } from "@jest/globals";
 import request from "supertest";
@@ -42,7 +45,7 @@ describe("/alumni", () => {
     ]);
     prisma.profile.count.mockResolvedValueOnce(1);
     const res = await request(app)
-      .get("/api/v1/alumni?q=eng&city=Pune")
+      .get("/api/v1/alumni?q=eng&city=Pune&sort=name")
       .set("Authorization", bearer(token));
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(1);
@@ -51,7 +54,9 @@ describe("/alumni", () => {
   it("free text searches names and companies — never department or batch", async () => {
     prisma.profile.findMany.mockResolvedValueOnce([]);
     prisma.profile.count.mockResolvedValueOnce(0);
-    await request(app).get("/api/v1/alumni?q=asha%20infosys").set("Authorization", bearer(token));
+    await request(app)
+      .get("/api/v1/alumni?q=asha%20infosys&sort=name")
+      .set("Authorization", bearer(token));
 
     const where = (prisma.profile.findMany.mock.calls[0][0] as any).where;
     // One clause per word, so a full name has to match on both halves.
@@ -68,7 +73,7 @@ describe("/alumni", () => {
     prisma.profile.findMany.mockResolvedValueOnce([]);
     prisma.profile.count.mockResolvedValueOnce(0);
     await request(app)
-      .get("/api/v1/alumni?departments=Civil%20Engineering,Food%20Technology&graduationYears=2019,2020")
+      .get("/api/v1/alumni?departments=Civil%20Engineering,Food%20Technology&graduationYears=2019,2020&sort=name")
       .set("Authorization", bearer(token));
 
     const where = (prisma.profile.findMany.mock.calls[0][0] as any).where;
@@ -81,5 +86,72 @@ describe("/alumni", () => {
       .get("/api/v1/alumni?graduationYears=2019,nope")
       .set("Authorization", bearer(token));
     expect(res.status).toBe(422);
+  });
+
+  it("422 on an unknown sort", async () => {
+    const res = await request(app)
+      .get("/api/v1/alumni?sort=salary")
+      .set("Authorization", bearer(token));
+    expect(res.status).toBe(422);
+  });
+});
+
+/**
+ * The directory answers differently for each member: it opens on their own
+ * department and batch. The basis comes from the caller's own profile — never
+ * from the query string, or one member could order the directory as another.
+ */
+describe("/alumni — relevance", () => {
+  beforeEach(() => {
+    prisma.profile.findUnique.mockResolvedValue({
+      department: "Computer Science and Engineering",
+      graduationYear: 2020,
+    } as any);
+    prisma.profile.count.mockResolvedValue(0);
+    prisma.profile.findMany.mockResolvedValue([]);
+  });
+
+  it("orders by the caller's own department and batch, and says so", async () => {
+    const res = await request(app).get("/api/v1/alumni").set("Authorization", bearer(token));
+
+    expect(res.status).toBe(200);
+    expect(res.body.relevance).toEqual({
+      department: "Computer Science and Engineering",
+      graduationYear: 2020,
+    });
+    // The basis was read for the caller, not for whoever the query names.
+    expect(prisma.profile.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "user-1" } }),
+    );
+  });
+
+  it("hides nobody — every band filters only on approved accounts", async () => {
+    await request(app).get("/api/v1/alumni").set("Authorization", bearer(token));
+
+    const wheres = prisma.profile.count.mock.calls.map((c: any) => c[0].where);
+    expect(wheres.length).toBeGreaterThan(1);
+    for (const w of wheres) expect(w.AND[0].user).toEqual({ status: "APPROVED" });
+  });
+
+  it("returns a card, not a profile row", async () => {
+    prisma.profile.count.mockResolvedValue(1);
+    prisma.profile.findMany.mockResolvedValue([
+      {
+        id: "p1",
+        userId: "u1",
+        linkedinUrl: "https://linkedin.com/in/asha",
+        showLinkedin: false,
+        user: { id: "u1", firstName: "A", lastName: "B" },
+      } as any,
+    ]);
+
+    const res = await request(app).get("/api/v1/alumni").set("Authorization", bearer(token));
+
+    expect(res.status).toBe(200);
+    // Switched off, so the link is not in the payload at all — and neither is
+    // the switch.
+    expect(res.body.items[0].linkedinUrl).toBeNull();
+    expect(res.body.items[0]).not.toHaveProperty("showLinkedin");
+    expect(res.body.items[0].user).not.toHaveProperty("email");
   });
 });

@@ -5,7 +5,7 @@ export const me = async (req: Request, res: Response) =>
   res.json(await service.getMyProfile(req.auth!.sub));
 
 export const byUserId = async (req: Request, res: Response) =>
-  res.json(await service.getProfileByUserId(req.params.userId));
+  res.json(await service.getProfileByUserId(req.params.userId, req.auth!.sub));
 
 export const updateMe = async (req: Request, res: Response) =>
   res.json(await service.updateMyProfile(req.auth!.sub, req.body));

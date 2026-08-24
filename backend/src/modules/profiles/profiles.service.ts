@@ -19,10 +19,19 @@ export const getMyProfile = async (userId: string) => {
   return profile;
 };
 
-export const getProfileByUserId = async (userId: string) => {
+/**
+ * Another member's profile.
+ *
+ * `showLinkedin` is the owner's own veto on their LinkedIn link, so it has to
+ * be applied on every surface that hands the link to somebody else — hiding it
+ * on the directory card while this endpoint still returns it would make the
+ * switch a decoration. Their own copy (`getMyProfile`) is untouched.
+ */
+export const getProfileByUserId = async (userId: string, viewerId?: string) => {
   const profile = await prisma.profile.findUnique({ where: { userId }, include: profileInclude });
   if (!profile) throw NotFound("Profile not found");
-  return profile;
+  if (profile.userId === viewerId || profile.showLinkedin) return profile;
+  return { ...profile, linkedinUrl: null };
 };
 
 /**

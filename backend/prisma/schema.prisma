@@ -80,7 +80,7 @@ enum DonationStatus {
 model User {
   id              String         @id @default(uuid())
   email           String         @unique
-  passwordHash    String?        // null when only OAuth login
+  passwordHash    String? // null when only OAuth login
   firstName       String
   lastName        String
   status          ApprovalStatus @default(PENDING)
@@ -89,39 +89,39 @@ model User {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  roles           UserRole[]
-  profile         Profile?
-  rejectionReason String?
-  preferences     UserPreferences?
-  refreshTokens   RefreshToken[]
+  roles               UserRole[]
+  profile             Profile?
+  rejectionReason     String?
+  preferences         UserPreferences?
+  refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
-  oauthAccounts   OAuthAccount[]
+  oauthAccounts       OAuthAccount[]
 
   // Authored content
-  eventsCreated   Event[]        @relation("EventCreator")
-  jobsCreated     Job[]          @relation("JobCreator")
-  achievements    Achievement[]
-  donations       Donation[]
+  eventsCreated         Event[]               @relation("EventCreator")
+  jobsCreated           Job[]                 @relation("JobCreator")
+  achievements          Achievement[]
+  donations             Donation[]
   donationLedgerEntries DonationLedgerEntry[]
-  rsvps           EventRsvp[]
-  jobApplications JobApplication[]
+  rsvps                 EventRsvp[]
+  jobApplications       JobApplication[]
 
   // Feed
-  posts           Post[]
-  postLikes       PostLike[]
-  postComments    PostComment[]
-  postReports     PostReport[]
+  posts        Post[]
+  postLikes    PostLike[]
+  postComments PostComment[]
+  postReports  PostReport[]
 
   // Chapter membership invitations (received / sent as an admin)
   chapterInvitations     ChapterInvitation[] @relation("ChapterInvitee")
   chapterInvitationsSent ChapterInvitation[] @relation("ChapterInviter")
 
-  settingsUpdated        AppSetting[]
-  postQuotaUsage         PostQuotaUsage[]
+  settingsUpdated AppSetting[]
+  postQuotaUsage  PostQuotaUsage[]
 
   // Alumni Collaboration (placement drives, workshops, ...)
-  collaborationRequests  CollaborationRequest[] @relation("CollaborationRequester")
-  collaborationReviews   CollaborationRequest[] @relation("CollaborationReviewer")
+  collaborationRequests CollaborationRequest[] @relation("CollaborationRequester")
+  collaborationReviews  CollaborationRequest[] @relation("CollaborationReviewer")
 
   @@index([status])
 }
@@ -139,7 +139,7 @@ model UserRole {
 model OAuthAccount {
   id           String   @id @default(uuid())
   userId       String
-  provider     String   // "linkedin" | "github"
+  provider     String // "linkedin" | "github"
   providerId   String
   accessToken  String?
   refreshToken String?
@@ -150,25 +150,25 @@ model OAuthAccount {
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -188,56 +188,66 @@ model EmailVerificationOtp {
 }
 
 model Profile {
-  id              String      @id @default(uuid())
-  userId          String      @unique
-  bio             String?
-  avatarKey       String?     // storage object key
-  bannerKey       String?     // profile cover banner storage key
-  phone           String?
-  city            String?
-  country         String?     @default("India")
-  linkedinUrl     String?
-  githubUrl       String?
-  twitterUrl      String?
-  websiteUrl      String?
+  id          String  @id @default(uuid())
+  userId      String  @unique
+  bio         String?
+  avatarKey   String? // storage object key
+  bannerKey   String? // profile cover banner storage key
+  phone       String?
+  city        String?
+  country     String? @default("India")
+  linkedinUrl String?
+  githubUrl   String?
+  twitterUrl  String?
+  websiteUrl  String?
+
+  /// Whether other alumni see this member's LinkedIn link on their directory
+  /// card and profile. Defaults to true: any approved member could already read
+  /// the column through the API before this switch existed, so defaulting to
+  /// false would have *removed* nothing while making the connect-by-batch
+  /// feature start out empty. The owner and admins always see their own link.
+  showLinkedin Boolean @default(true)
 
   /// Birthday, stored as day + month only — the platform sends birthday wishes
   /// and has no use for the year, so it deliberately isn't collected.
-  birthDay        Int?
-  birthMonth      Int?
+  birthDay   Int?
+  birthMonth Int?
 
   // Academic
-  department      String?
-  degree          DegreeType?
+  department     String?
+  degree         DegreeType?
   /// Derived at sign-up from `graduationYear` and the degree's course length
   /// (see `admissionYearFor` in config/constants.ts) — never asked for.
-  admissionYear   Int?
-  graduationYear  Int?
-  rollNumber      String?
+  admissionYear  Int?
+  graduationYear Int?
+  rollNumber     String?
 
   // Current professional snapshot (denormalized for quick directory queries)
-  currentCompany  String?
-  currentRole     String?
+  currentCompany String?
+  currentRole    String?
 
   /// Regional chapter the alumnus belongs to. A profile is in at most one
   /// chapter at a time; switching simply repoints this column.
-  chapterId       String?
+  chapterId String?
 
   /// Resolved city centroid for the alumni map, kept in step with `city` +
   /// `country` by `resolveProfileLocation()`. Never a residential coordinate —
   /// see `GeoLocation`.
-  locationId      String?
+  locationId String?
 
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chapter         Chapter?          @relation(fields: [chapterId], references: [id], onDelete: SetNull)
-  location        GeoLocation?      @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  experiences     WorkExperience[]
-  educations      Education[]
-  skills          ProfileSkill[]
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chapter     Chapter?         @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  location    GeoLocation?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  experiences WorkExperience[]
+  educations  Education[]
+  skills      ProfileSkill[]
 
   @@index([city])
   @@index([currentCompany])
   @@index([graduationYear])
+  /// The directory's default ordering groups by "same department as the
+  /// viewer", then walks outwards from their batch — both columns, together.
+  @@index([department, graduationYear])
   @@index([chapterId])
   @@index([locationId])
 }
@@ -269,7 +279,7 @@ model GeoLocation {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  profiles  Profile[]
+  profiles Profile[]
 
   @@index([country])
 }
@@ -292,14 +302,14 @@ enum GeoSource {
 /// Membership is invite-only: an admin invites an alumnus (see
 /// `ChapterInvitation`) and they join once they accept.
 model Chapter {
-  id          String   @id @default(uuid())
-  slug        String   @unique
-  name        String
-  blurb       String?
+  id       String  @id @default(uuid())
+  slug     String  @unique
+  name     String
+  blurb    String?
   /// Tailwind gradient classes for the public chapter card header.
-  accent      String?
-  city        String?
-  isActive    Boolean  @default(true)
+  accent   String?
+  city     String?
+  isActive Boolean @default(true)
 
   /// Display position, ascending — the alumni office wants Pune, Mumbai,
   /// Bangalore, Global rather than alphabetical order. Sorting lives here
@@ -307,10 +317,10 @@ model Chapter {
   /// list and the admin list all agree without repeating the rule. Chapters
   /// created later default to 100 and fall in after the seeded four, then
   /// alphabetically among themselves.
-  sortOrder   Int      @default(100)
+  sortOrder Int @default(100)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   members     Profile[]
   events      Event[]
@@ -368,14 +378,14 @@ model WorkExperience {
 }
 
 model Education {
-  id          String    @id @default(uuid())
+  id          String  @id @default(uuid())
   profileId   String
   institution String
   degree      String
   field       String?
   startYear   Int
   endYear     Int?
-  profile     Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile     Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 }
 
 model Skill {
@@ -408,7 +418,7 @@ model PostQuotaUsage {
   count     Int      @default(0)
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, period])
 }
@@ -425,17 +435,17 @@ model AppSetting {
   updatedAt   DateTime @updatedAt
   updatedById String?
 
-  updatedBy   User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
 }
 
 model UserPreferences {
-  userId               String  @id
-  notificationsEmail   Boolean @default(true)
-  notificationsPush    Boolean @default(true)
-  darkMode             Boolean @default(false)
-  language             String  @default("en")
-  theme                String  @default("default") // "default"|"ocean"|"sunset"|"forest"|"royal"
-  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId             String  @id
+  notificationsEmail Boolean @default(true)
+  notificationsPush  Boolean @default(true)
+  darkMode           Boolean @default(false)
+  language           String  @default("en")
+  theme              String  @default("default") // "default"|"ocean"|"sunset"|"forest"|"royal"
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // =====================================================================
@@ -453,21 +463,21 @@ model Event {
   endsAt          DateTime?
   capacity        Int?
   coverKey        String?
-  attachmentKey   String?        // PDF/image/doc attachment storage key
+  attachmentKey   String? // PDF/image/doc attachment storage key
   /// Target departments for notifications. **Empty = every department** — an
   /// event can be aimed at any number of them, so this is a list rather than
   /// the single nullable column it replaced.
   departments     String[]       @default([])
-  chapterId       String?        // Target chapter for notifications (null = all chapters)
+  chapterId       String? // Target chapter for notifications (null = all chapters)
   status          ApprovalStatus @default(PENDING)
   rejectionReason String?
   createdById     String
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  createdBy   User           @relation("EventCreator", fields: [createdById], references: [id])
-  chapter     Chapter?       @relation(fields: [chapterId], references: [id], onDelete: SetNull)
-  rsvps       EventRsvp[]
+  createdBy User        @relation("EventCreator", fields: [createdById], references: [id])
+  chapter   Chapter?    @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  rsvps     EventRsvp[]
 
   @@index([status, startsAt])
   @@index([chapterId])
@@ -481,8 +491,8 @@ model EventRsvp {
   emailRsvpStatus EmailRsvpStatus? // RSVP submitted via email link
   createdAt       DateTime         @default(now())
 
-  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, userId])
 }
@@ -498,13 +508,13 @@ model Job {
   location        String?
   isRemote        Boolean        @default(false)
   employmentType  EmploymentType @default(FULL_TIME)
-  experienceMin   Int?           // years
+  experienceMin   Int? // years
   experienceMax   Int?
   salaryMin       Int?
   salaryMax       Int?
   currency        String         @default("INR")
   description     String
-  attachmentKey   String?        // PDF/image/doc attachment storage key
+  attachmentKey   String? // PDF/image/doc attachment storage key
   /// Departments this opening is aimed at. **Empty = open to all.**
   departments     String[]       @default([])
   requirements    String?
@@ -520,24 +530,24 @@ model Job {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  createdBy       User             @relation("JobCreator", fields: [createdById], references: [id])
-  applications    JobApplication[]
+  createdBy    User             @relation("JobCreator", fields: [createdById], references: [id])
+  applications JobApplication[]
 
   @@index([status, createdAt])
   @@index([company])
 }
 
 model JobApplication {
-  id        String   @id @default(uuid())
-  jobId     String
-  userId    String
-  resumeKey String?
-  coverLetter String?
-  createdAt DateTime @default(now())
+  id              String    @id @default(uuid())
+  jobId           String
+  userId          String
+  resumeKey       String?
+  coverLetter     String?
+  createdAt       DateTime  @default(now())
   resumeDeletedAt DateTime?
 
-  job       Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([jobId, userId])
 }
@@ -547,21 +557,21 @@ model JobApplication {
 // =====================================================================
 
 model Achievement {
-  id          String         @id @default(uuid())
-  userId      String
-  title       String
-  description String
-  category    String?        // "Award", "Promotion", "Publication", ...
-  occurredOn  DateTime?
-  imageKey    String?        // Cover image (shown in cards / home slider)
-  attachmentKey String?      // Certificate / supporting doc (pdf/doc/image)
-  link        String?        // External link (article, certificate URL, ...)
-  status      ApprovalStatus @default(PENDING)
+  id              String         @id @default(uuid())
+  userId          String
+  title           String
+  description     String
+  category        String? // "Award", "Promotion", "Publication", ...
+  occurredOn      DateTime?
+  imageKey        String? // Cover image (shown in cards / home slider)
+  attachmentKey   String? // Certificate / supporting doc (pdf/doc/image)
+  link            String? // External link (article, certificate URL, ...)
+  status          ApprovalStatus @default(PENDING)
   rejectionReason String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([status, createdAt])
 }
@@ -571,50 +581,50 @@ model Achievement {
 // =====================================================================
 
 model DonationCampaign {
-  id          String     @id @default(uuid())
+  id          String    @id @default(uuid())
   title       String
   description String
   goalAmount  Int
-  currency    String     @default("INR")
+  currency    String    @default("INR")
   coverKey    String?
   startsAt    DateTime
   endsAt      DateTime?
-  isActive    Boolean    @default(true)
-  createdAt   DateTime   @default(now())
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
 
-  donations   Donation[]
+  donations Donation[]
 }
 
 model Donation {
-  id           String         @id @default(uuid())
-  campaignId   String?
-  userId       String
-  amount       Int
-  currency     String         @default("INR")
-  message      String?
-  status       DonationStatus @default(PLEDGED)
-  proofKey      String?
-  receiptKey   String?
-  isAnonymous  Boolean        @default(false)
-  createdAt    DateTime       @default(now())
+  id          String         @id @default(uuid())
+  campaignId  String?
+  userId      String
+  amount      Int
+  currency    String         @default("INR")
+  message     String?
+  status      DonationStatus @default(PLEDGED)
+  proofKey    String?
+  receiptKey  String?
+  isAnonymous Boolean        @default(false)
+  createdAt   DateTime       @default(now())
 
   // Snapshot of the donor at time of donation — records stay correct even if
   // the user later edits their profile, and the receipt/email need them.
-  donorName    String?
-  donorEmail   String?
+  donorName  String?
+  donorEmail String?
 
   // Razorpay payment tracking (backend-verified, independent of the frontend).
-  provider          String?    @default("razorpay")
-  razorpayOrderId   String?    @unique
+  provider          String?   @default("razorpay")
+  razorpayOrderId   String?   @unique
   razorpayPaymentId String?
   razorpaySignature String?
-  paymentMethod     String?    // upi | card | netbanking | wallet | ...
-  receiptNo         String?    @unique
+  paymentMethod     String? // upi | card | netbanking | wallet | ...
+  receiptNo         String?   @unique
   paidAt            DateTime?
   receiptSentAt     DateTime?
 
-  campaign     DonationCampaign? @relation(fields: [campaignId], references: [id])
-  user         User              @relation(fields: [userId], references: [id])
+  campaign      DonationCampaign?     @relation(fields: [campaignId], references: [id])
+  user          User                  @relation(fields: [userId], references: [id])
   ledgerEntries DonationLedgerEntry[]
 
   @@index([campaignId])
@@ -636,8 +646,8 @@ model DonationLedgerEntry {
   metadata   Json?
   createdAt  DateTime        @default(now())
 
-  donation   Donation        @relation(fields: [donationId], references: [id], onDelete: Cascade)
-  actor      User?           @relation(fields: [actorId], references: [id])
+  donation Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
+  actor    User?    @relation(fields: [actorId], references: [id])
 
   @@index([donationId, createdAt])
   @@index([actorId])
@@ -649,14 +659,14 @@ model DonationLedgerEntry {
 // =====================================================================
 
 model Notification {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  type      String   // "event.approved", "job.new", ...
+  type      String // "event.approved", "job.new", ...
   title     String
   body      String?
   data      Json?
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, readAt])
 }
@@ -664,8 +674,8 @@ model Notification {
 model AuditLog {
   id        String   @id @default(uuid())
   actorId   String?
-  action    String   // "user.approve", "event.reject", ...
-  entity    String   // "User" | "Event" | ...
+  action    String // "user.approve", "event.reject", ...
+  entity    String // "User" | "Event" | ...
   entityId  String?
   metadata  Json?
   createdAt DateTime @default(now())
@@ -673,6 +683,7 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([actorId])
 }
+
 // =====================================================================
 // CMS: News, Newsletters, Support inbox, Site sections
 // =====================================================================
@@ -712,16 +723,16 @@ model Newsletter {
 
 /// A set of photographs from one alumni event, managed from `/admin/gallery`.
 model GalleryAlbum {
-  id          String   @id @default(uuid())
-  slug        String   @unique
+  id          String    @id @default(uuid())
+  slug        String    @unique
   title       String
   /// When the event happened — albums are listed newest first.
   eventDate   DateTime?
   location    String?
   /// Unpublished albums are invisible to the public page while being prepared.
-  isPublished Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isPublished Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   photos GalleryPhoto[]
 
@@ -779,11 +790,11 @@ model Post {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  media     PostMedia[]
-  likes     PostLike[]
-  comments  PostComment[]
-  reports   PostReport[]
+  author   User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  media    PostMedia[]
+  likes    PostLike[]
+  comments PostComment[]
+  reports  PostReport[]
 
   @@index([createdAt])
   @@index([authorId, createdAt])
@@ -802,7 +813,7 @@ model PostMedia {
   position  Int           @default(0)
   createdAt DateTime      @default(now())
 
-  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@index([postId, position])
 }
@@ -813,8 +824,8 @@ model PostLike {
   userId    String
   createdAt DateTime @default(now())
 
-  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([postId, userId])
   @@index([userId])
@@ -828,8 +839,8 @@ model PostComment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([postId, createdAt])
 }
@@ -844,8 +855,8 @@ model PostReport {
   reviewedAt DateTime?
   createdAt  DateTime         @default(now())
 
-  post       Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
-  reporter   User             @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  post     Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
 
   /// One open report per member per post — re-reporting updates the existing row.
   @@unique([postId, reporterId])
@@ -897,20 +908,20 @@ model CollaborationRequest {
   rejectionReason String?
 
   // ---- shared ----
-  title           String
+  title          String
   /// Company / institute the alumnus represents.
-  organization    String?
+  organization   String?
   /// Target departments. **Empty means every department** — the same meaning
   /// `Event.departments` and `Job.departments` give an empty array.
-  departments     String[]
-  mode            CollaborationMode?
+  departments    String[]
+  mode           CollaborationMode?
   /// Free-text "anything else the office should know".
-  description     String?
-  attachmentKey   String?
+  description    String?
+  attachmentKey  String?
   /// Original file name, so the admin sees "jd-infosys.pdf" and not a storage key.
-  attachmentName  String?
-  contactEmail    String?
-  contactPhone    String?
+  attachmentName String?
+  contactEmail   String?
+  contactPhone   String?
 
   // ---- placement only ----
   candidatesRequired Int?

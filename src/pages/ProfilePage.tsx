@@ -16,11 +16,17 @@ import { toast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import ChangePasswordCard from "@/components/ChangePasswordCard";
 import type { DegreeValue } from "@/lib/degrees";
+import { Switch } from "@/components/ui/switch";
 import { safeExternalUrl } from "@/lib/urls";
 
 interface Profile {
   bio?: string | null; phone?: string | null; city?: string | null; country?: string | null;
   linkedinUrl?: string | null; githubUrl?: string | null; twitterUrl?: string | null; websiteUrl?: string | null;
+  /**
+   * Whether other alumni see the LinkedIn link — on the directory card and on
+   * this profile when somebody else opens it. The owner always sees their own.
+   */
+  showLinkedin?: boolean;
   department?: string | null; degree?: DegreeValue | null;
   admissionYear?: number | null; graduationYear?: number | null;
   /** Birthday, day + month only — no year is stored. */
@@ -37,6 +43,7 @@ interface Profile {
 /** Whitelist of writable fields so we never send `id`, relations, etc back. */
 const WRITABLE_FIELDS: (keyof Profile)[] = [
   "bio", "phone", "city", "country", "linkedinUrl", "githubUrl", "twitterUrl", "websiteUrl",
+  "showLinkedin",
   "department", "degree", "admissionYear", "graduationYear",
   "birthDay", "birthMonth",
   "currentCompany", "currentRole", "avatarKey",
@@ -245,6 +252,30 @@ const ProfilePage = () => {
             <div className="space-y-1.5"><Label>GitHub URL</Label><Input type="url" placeholder="https://github.com/..." value={form.githubUrl ?? ""} onChange={(e) => setForm({ ...form, githubUrl: e.target.value })} /></div>
             <div className="space-y-1.5"><Label>Twitter / X URL</Label><Input type="url" placeholder="https://x.com/..." value={form.twitterUrl ?? ""} onChange={(e) => setForm({ ...form, twitterUrl: e.target.value })} /></div>
             <div className="space-y-1.5"><Label>Website URL</Label><Input type="url" placeholder="https://yoursite.com" value={form.websiteUrl ?? ""} onChange={(e) => setForm({ ...form, websiteUrl: e.target.value })} /></div>
+
+            {/*
+              Sits with the links because it is about one of them: the directory
+              card shows a LinkedIn icon so batchmates can connect, and this is
+              how an alumnus declines that without deleting the URL they keep
+              for their own profile.
+            */}
+            <div className="md:col-span-2 flex items-start justify-between gap-4 rounded-lg border border-border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="show-linkedin" className="cursor-pointer">
+                  Show my LinkedIn to other alumni
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {form.showLinkedin === false
+                    ? "Hidden — nobody sees your LinkedIn in the directory."
+                    : "Your LinkedIn icon appears on your directory card so batchmates can connect."}
+                </p>
+              </div>
+              <Switch
+                id="show-linkedin"
+                checked={form.showLinkedin !== false}
+                onCheckedChange={(checked) => setForm({ ...form, showLinkedin: checked })}
+              />
+            </div>
             <div className="space-y-1.5 md:col-span-2"><Label>Bio</Label><Textarea value={form.bio ?? ""} onChange={(e) => setForm({ ...form, bio: e.target.value })} /></div>
           </div>
         )}
