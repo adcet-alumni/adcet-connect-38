@@ -126,8 +126,14 @@ const DashboardLayout = () => {
     navigate("/login", { replace: true });
   };
 
-  // Shared sidebar content for both mobile and desktop
-  const SidebarContent = () => (
+  /**
+   * Shared sidebar content for both mobile and desktop — an element, not a
+   * nested component. A `const SidebarContent = () =>` declared in the render
+   * body is a new component type on every render, so React remounted the whole
+   * subtree and `SidebarNavGroup` lost its expanded state on every keystroke in
+   * the chat box, every sidebar toggle and every route change.
+   */
+  const sidebar = (
     <nav className="p-3 space-y-1">
       {visibleSidebar.filter(i => !(i as any).admin).map(item => (
         (item as { group?: boolean }).group ? (
@@ -298,7 +304,7 @@ const DashboardLayout = () => {
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <SidebarContent />
+                {sidebar}
 
                 {/* Mobile nav items (shown in sidebar on mobile) */}
                 <div className="border-t border-border mx-3 my-2 pt-2">
@@ -331,7 +337,7 @@ const DashboardLayout = () => {
               className="border-r border-border bg-card overflow-hidden flex-shrink-0 hidden md:flex md:flex-col"
             >
               <div className="flex-1 overflow-y-auto">
-                <SidebarContent />
+                {sidebar}
               </div>
             </motion.aside>
           )}

@@ -1,6 +1,13 @@
 /**
  * Reusable "Reject with reason" dialog. The reason is optional but encouraged.
  * The parent provides the action label and the async onConfirm callback.
+ *
+ * Every caller passes a TanStack `mutateAsync`, which *rejects* on failure even
+ * though its own `onError` has already toasted. So the confirm handler owns
+ * that rejection: it swallows it (the toast is the user-facing report) and
+ * leaves the dialog open with the typed reason intact, instead of letting an
+ * unhandled promise rejection escape and closing over a rejection that never
+ * happened.
  */
 import { useState } from "react";
 import {
@@ -67,7 +74,11 @@ export const RejectReasonDialog = ({
             variant="destructive"
             disabled={pending}
             onClick={async () => {
-              await onConfirm(reason.trim());
+              try {
+                await onConfirm(reason.trim());
+              } catch {
+                return; // the caller's onError has already surfaced it
+              }
               close(false);
             }}
           >

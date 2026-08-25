@@ -16,9 +16,17 @@ import { Badge } from "@/components/ui/badge";
 export interface SidebarNavGroupItem {
   label: string;
   path: string;
-  /** Rendered as a pill on the right, e.g. a pending count. */
-  badge?: string;
+  /**
+   * A pending count, as a *number*. Deliberately not a pre-formatted string:
+   * the heading rolls the children up into one total while collapsed, and a
+   * capped "99+" would parse back as NaN and drop that child from the sum —
+   * silently hiding the very largest queue. Capping happens at render, below.
+   */
+  badge?: number;
 }
+
+/** A count is only ever shown when there is something to show. */
+const badgeText = (n: number) => (n > 99 ? "99+" : String(n));
 
 interface Props {
   label: string;
@@ -38,7 +46,7 @@ export const SidebarNavGroup = ({ label, icon: Icon, basePath, items }: Props) =
     if (inside) setOpen(true);
   }, [inside]);
 
-  const total = items.reduce((sum, i) => sum + (Number(i.badge) || 0), 0);
+  const total = items.reduce((sum, i) => sum + (i.badge ?? 0), 0);
 
   return (
     <div>
@@ -56,7 +64,7 @@ export const SidebarNavGroup = ({ label, icon: Icon, basePath, items }: Props) =
         <span className="flex-1 text-left">{label}</span>
         {!open && total > 0 && (
           <Badge className="bg-destructive/15 text-destructive border-0 text-[10px] h-5 min-w-[20px] justify-center">
-            {total > 99 ? "99+" : total}
+            {badgeText(total)}
           </Badge>
         )}
         <ChevronDown
@@ -74,9 +82,9 @@ export const SidebarNavGroup = ({ label, icon: Icon, basePath, items }: Props) =
               activeClassName="bg-primary/10 text-primary font-medium"
             >
               <span className="flex-1">{item.label}</span>
-              {item.badge && (
+              {!!item.badge && item.badge > 0 && (
                 <Badge className="bg-destructive/15 text-destructive border-0 text-[10px] h-5 min-w-[20px] justify-center">
-                  {item.badge}
+                  {badgeText(item.badge)}
                 </Badge>
               )}
             </NavLink>

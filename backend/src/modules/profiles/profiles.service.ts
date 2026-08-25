@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
 import { NotFound } from "../../lib/errors.js";
 import { resolveProfileLocation } from "../../lib/geocode.js";
+import { personSelect } from "../../lib/selects.js";
 
 const profileInclude = {
   experiences: { orderBy: { startDate: "desc" as const } },
@@ -19,10 +20,69 @@ export const getMyProfile = async (userId: string) => {
   return profile;
 };
 
-export const getProfileByUserId = async (userId: string) => {
-  const profile = await prisma.profile.findUnique({ where: { userId }, include: profileInclude });
+/**
+ * What one member may see of another: who they are, where they studied and
+ * what they do now — the profile as a page, not the row as stored.
+ *
+ * Everything left out is left out on purpose. `phone`, `birthDay`/`birthMonth`
+ * and `rollNumber` are contact and identity details an alumnus gave the college,
+ * not the network; `admissionYear` is derived; `locationId` is map plumbing; and
+ * `user.email` never belongs in a payload a member can enumerate. Before this,
+ * `GET /profiles/:userId` handed the entire `Profile` row plus the email to any
+ * approved member — a directory of phone numbers for anyone who read the API.
+ */
+const memberViewSelect = {
+  userId: true,
+  avatarKey: true,
+  bannerKey: true,
+  bio: true,
+  city: true,
+  country: true,
+  department: true,
+  degree: true,
+  graduationYear: true,
+  currentCompany: true,
+  currentRole: true,
+  linkedinUrl: true,
+  showLinkedin: true,
+  githubUrl: true,
+  twitterUrl: true,
+  websiteUrl: true,
+  chapter: { select: { id: true, slug: true, name: true, city: true, isActive: true } },
+  experiences: { orderBy: { startDate: "desc" as const } },
+  educations: { orderBy: { startYear: "desc" as const } },
+  skills: { include: { skill: true } },
+  user: { select: personSelect() },
+} satisfies Prisma.ProfileSelect;
+
+/** Who is asking — the owner and admins see the row, everyone else the page. */
+export interface ProfileViewer {
+  id: string;
+  isAdmin: boolean;
+}
+
+/**
+ * Another member's profile.
+ *
+ * An admin still sees the whole row (they administer these accounts), and so
+ * does the owner asking about themselves. Every other member gets
+ * `memberViewSelect`, with `showLinkedin` applied on top: that flag is the
+ * owner's veto on their LinkedIn link, so it has to hold on every surface that
+ * hands the link to somebody else — honouring it on the directory card while
+ * this endpoint still returned it would make the switch a decoration.
+ */
+export const getProfileByUserId = async (userId: string, viewer?: ProfileViewer) => {
+  if (viewer?.isAdmin || (viewer && viewer.id === userId)) {
+    const own = await prisma.profile.findUnique({ where: { userId }, include: profileInclude });
+    if (!own) throw NotFound("Profile not found");
+    return own;
+  }
+
+  const profile = await prisma.profile.findUnique({ where: { userId }, select: memberViewSelect });
   if (!profile) throw NotFound("Profile not found");
-  return profile;
+
+  const { showLinkedin, linkedinUrl, ...rest } = profile;
+  return { ...rest, linkedinUrl: showLinkedin ? linkedinUrl : null };
 };
 
 /**

@@ -141,6 +141,7 @@ const App = () => (
                         COLLABORATION_KINDS in src/lib/collaboration.ts. */}
                     <Route path="collaboration/placement" element={<CollaborationPage type="PLACEMENT" />} />
                     <Route path="collaboration/workshop" element={<CollaborationPage type="WORKSHOP" />} />
+                    <Route path="collaboration/other" element={<CollaborationPage type="OTHER" />} />
                     <Route path="support" element={<StaticContentPage contentKey="support" />} />
                     <Route path="news" element={<StaticContentPage contentKey="news" />} />
                     <Route path="status" element={<AccountStatusPage />} />
@@ -173,6 +174,7 @@ const App = () => (
                   <Route path="gallery" element={<GalleryAdminPage />} />
                   <Route path="collaboration/placement" element={<CollaborationAdminPage type="PLACEMENT" />} />
                   <Route path="collaboration/workshop" element={<CollaborationAdminPage type="WORKSHOP" />} />
+                  <Route path="collaboration/other" element={<CollaborationAdminPage type="OTHER" />} />
                   <Route path="support" element={<SupportInboxPage />} />
                   <Route path="settings" element={<SettingsPage />} />
                   {/* Same for the admin console. */}

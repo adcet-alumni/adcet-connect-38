@@ -243,6 +243,9 @@ export async function uploadFile(
     fileName: file.name,
     contentType: file.type || "application/octet-stream",
     scope,
+    // Validated against the scope's ceiling by the same schema `/uploads/presign`
+    // uses; the route then re-checks the bytes it actually received.
+    size: String(file.size),
   });
   const res = await fetch(url, {
     method: "POST",

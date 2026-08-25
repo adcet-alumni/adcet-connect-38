@@ -97,9 +97,25 @@ describe("analytics.service — adminOverview", () => {
       pendingEvents: 2,
       pendingJobs: 3,
       pendingAchievements: 4,
+      // Keyed by collaboration type, so a kind added to COLLABORATION_TYPES
+      // gets a sidebar badge without a new field on this payload.
+      pendingCollaboration: { PLACEMENT: 5, WORKSHOP: 6, OTHER: 0 },
       pendingPlacements: 5,
       pendingWorkshops: 6,
     });
+  });
+
+  it("counts every collaboration kind, including the catch-all", async () => {
+    prismaMock.user.count.mockResolvedValueOnce(0);
+    prismaMock.event.count.mockResolvedValueOnce(0);
+    prismaMock.job.count.mockResolvedValueOnce(0);
+    prismaMock.achievement.count.mockResolvedValueOnce(0);
+    prismaMock.collaborationRequest.groupBy.mockResolvedValueOnce([
+      { type: "OTHER", _count: { _all: 3 } },
+    ]);
+
+    const out = await svc.adminOverview();
+    expect(out.pendingCollaboration).toEqual({ PLACEMENT: 0, WORKSHOP: 0, OTHER: 3 });
   });
 
   it("reports zero for a collaboration type with nothing pending", async () => {

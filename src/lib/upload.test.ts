@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const post = vi.fn();
 vi.mock("@/lib/api", () => ({ api: { post: (...args: unknown[]) => post(...args) } }));
 
-const { uploadFile, uploadToPresigned } = await import("@/lib/upload");
+const { uploadFile, uploadToPresigned, UPLOAD_MAX_BYTES } = await import("@/lib/upload");
 
 const file = new File(["hello"], "photo.png", { type: "image/png" });
 const ok = () => ({ ok: true, status: 200, text: async () => "" }) as Response;
@@ -75,6 +75,17 @@ describe("uploadFile", () => {
       fileName: "photo.png",
       contentType: "image/png",
       scope: "avatar",
+      // The backend caps this and (on S3/MinIO) signs it into the upload URL,
+      // so the declared size must be the file's real length.
+      size: file.size,
     });
+  });
+
+  it("refuses a file over the scope's ceiling without asking for a presign", async () => {
+    const huge = new File(["x"], "huge.png", { type: "image/png" });
+    Object.defineProperty(huge, "size", { value: UPLOAD_MAX_BYTES.avatar + 1 });
+
+    await expect(uploadFile(huge, "avatar")).rejects.toThrow(/too large/);
+    expect(post).not.toHaveBeenCalled();
   });
 });

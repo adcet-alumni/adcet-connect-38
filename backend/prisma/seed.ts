@@ -766,6 +766,20 @@ async function main() {
     description: "Students should bring laptops with Python 3.11 installed.",
     status: "PENDING",
   });
+  // The catch-all kind: no columns of its own, so the description carries it.
+  await upsertCollaboration({
+    userId: bob.id,
+    type: "OTHER",
+    title: "Guest lecture: what a design review actually looks like",
+    organization: "Tata Motors",
+    departments: ["Mechanical Engineering"],
+    mode: "ON_CAMPUS",
+    startDate: inDays(60),
+    description:
+      "A two-hour session for final-year students walking through a real design review — the drawings, the arguments, and why things get sent back. Happy to bring two colleagues along.",
+    contactEmail: "bob@adcet.in",
+    status: "PENDING",
+  });
 
   console.log("🗺  Placing alumni on the map…");
   const placed = await runGeoBackfill({ allowRemote: false });

@@ -11,8 +11,9 @@
  * page component.
  */
 import { api } from "@/lib/api";
+import { UPLOAD_MAX_BYTES } from "@/lib/upload";
 
-export const COLLABORATION_TYPES = ["PLACEMENT", "WORKSHOP"] as const;
+export const COLLABORATION_TYPES = ["PLACEMENT", "WORKSHOP", "OTHER"] as const;
 export type CollaborationType = (typeof COLLABORATION_TYPES)[number];
 
 export type CollaborationStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -20,11 +21,12 @@ export type CollaborationMode = "ON_CAMPUS" | "ONLINE" | "HYBRID";
 export type DurationUnit = "HOURS" | "DAYS";
 
 /**
- * One file per request, 10 MB. Mirrors `COLLABORATION_ATTACHMENT_MAX_BYTES` in
- * the backend's `config/constants.ts`. Bytes go browser → storage, so the form
- * is the only place that can enforce this — check before presigning.
+ * One file per request, 10 MB. The form checks it so the alumnus gets an
+ * immediate message instead of a failed upload; the ceiling itself is enforced
+ * server-side — see `UPLOAD_MAX_BYTES` in `@/lib/upload` and its mirror in the
+ * backend's `config/constants.ts`.
  */
-export const COLLABORATION_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const COLLABORATION_ATTACHMENT_MAX_BYTES = UPLOAD_MAX_BYTES.collaboration;
 
 export const COLLABORATION_ATTACHMENT_ACCEPT =
   "application/pdf,image/*,.doc,.docx,.ppt,.pptx,.xls,.xlsx";
@@ -115,6 +117,15 @@ export interface CollaborationKind {
   intro: string;
   /** Label on the submit button and dialog heading. */
   ctaLabel: string;
+  /** Placeholder for the shared title field. */
+  titlePlaceholder: string;
+  /** Copy for the shared description box — and whether it is the substance. */
+  description: {
+    label: string;
+    placeholder: string;
+    /** `OTHER` has no fields of its own, so its description is mandatory. */
+    required?: boolean;
+  };
   /** Rows shown on a request card and in the admin detail view. */
   detailRows: (r: CollaborationRequest) => { label: string; value: string }[];
 }
@@ -133,6 +144,11 @@ export const COLLABORATION_KINDS: Record<CollaborationType, CollaborationKind> =
     intro:
       "Hiring for your company? Tell the alumni office what you need and they will get back to you to set the drive up.",
     ctaLabel: "Request a placement drive",
+    titlePlaceholder: "e.g. Infosys campus drive 2026",
+    description: {
+      label: "Anything else the office should know",
+      placeholder: "Selection rounds, bond details, travel arrangements…",
+    },
     detailRows: (r) => [
       { label: "Role offered", value: r.jobRole ?? "" },
       { label: "Candidates required", value: r.candidatesRequired ? String(r.candidatesRequired) : "" },
@@ -149,6 +165,11 @@ export const COLLABORATION_KINDS: Record<CollaborationType, CollaborationKind> =
     intro:
       "Share what you do best with current students. Propose a subject and the dates that suit you — the office will take it from there.",
     ctaLabel: "Request a workshop",
+    titlePlaceholder: "e.g. Hands-on Kubernetes",
+    description: {
+      label: "Anything else the office should know",
+      placeholder: "Prerequisites, lab requirements, software to install…",
+    },
     detailRows: (r) => [
       { label: "Subject", value: r.subject ?? "" },
       { label: "Duration", value: durationText(r) },
@@ -163,6 +184,30 @@ export const COLLABORATION_KINDS: Record<CollaborationType, CollaborationKind> =
         value: r.expectedParticipants ? String(r.expectedParticipants) : "",
       },
     ],
+  },
+  /**
+   * The catch-all. It has no fields of its own on purpose — what an alumnus
+   * offers here is whatever they describe, so the description does the work
+   * that `jobRole` or `subject` does for the other two, and `startDate` is
+   * relabelled as a preferred date. If one sort of request keeps arriving
+   * through this form, that is the signal to give it a kind of its own.
+   */
+  OTHER: {
+    type: "OTHER",
+    slug: "other",
+    label: "Other",
+    tagline: "Offer something else to ADCET",
+    intro:
+      "A guest lecture, a lab or library contribution, an industry visit, a mentoring programme — anything that does not fit the two forms above. Describe what you have in mind and the office will get back to you.",
+    ctaLabel: "Send a request",
+    titlePlaceholder: "e.g. Guest lecture on semiconductor manufacturing",
+    description: {
+      label: "What are you offering?",
+      placeholder:
+        "What you would like to do, who it is for, what you would need from the college, and anything else that helps the office judge it.",
+      required: true,
+    },
+    detailRows: (r) => [{ label: "Preferred date", value: formatDate(r.startDate) }],
   },
 };
 
@@ -233,7 +278,15 @@ export type WorkshopInput = {
   expectedParticipants?: number;
 };
 
-export type CollaborationInput = (PlacementInput | WorkshopInput) & {
+export type OtherInput = {
+  type: "OTHER";
+  /** Mandatory for this kind — it is the request. */
+  description: string;
+  /** Optional "when would suit you". */
+  startDate?: string;
+};
+
+export type CollaborationInput = (PlacementInput | WorkshopInput | OtherInput) & {
   title: string;
   organization?: string;
   departments: string[];

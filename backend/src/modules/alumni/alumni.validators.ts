@@ -14,7 +14,16 @@ const csv = <T extends z.ZodTypeAny>(item: T) =>
     .pipe(z.array(item))
     .optional();
 
+/**
+ * `relevant` is the default and is computed per viewer (own department first,
+ * then outwards from their own batch); the other two are the viewer-independent
+ * orders, offered so a member can always fall back to a predictable listing.
+ */
+export const DIRECTORY_SORTS = ["relevant", "batch", "name"] as const;
+export type DirectorySort = (typeof DIRECTORY_SORTS)[number];
+
 export const directoryQuery = paginationSchema.extend({
+  sort: z.enum(DIRECTORY_SORTS).default("relevant"),
   q: z.string().optional(),
   city: z.string().optional(),
   company: z.string().optional(),

@@ -18,7 +18,7 @@ const items = COLLABORATION_KIND_LIST.map((k) => ({
   path: `/dashboard/collaboration/${k.slug}`,
 }));
 
-const renderGroup = (route = "/dashboard", extra: Partial<{ badge: string }> = {}) =>
+const renderGroup = (route = "/dashboard", extra: Partial<{ badge: number }> = {}) =>
   render(
     <MemoryRouter initialEntries={[route]}>
       <SidebarNavGroup
@@ -53,16 +53,28 @@ describe("SidebarNavGroup", () => {
     const hrefs = COLLABORATION_KIND_LIST.map((k) =>
       screen.getByRole("link", { name: k.label }).getAttribute("href"),
     );
-    expect(hrefs).toEqual(["/dashboard/collaboration/placement", "/dashboard/collaboration/workshop"]);
+    expect(hrefs).toEqual([
+      "/dashboard/collaboration/placement",
+      "/dashboard/collaboration/workshop",
+      "/dashboard/collaboration/other",
+    ]);
   });
 
   it("rolls child badges up to the heading while collapsed, so a pending request is not hidden", () => {
-    renderGroup("/dashboard", { badge: "4" });
+    renderGroup("/dashboard", { badge: 4 });
     const heading = screen.getByRole("button", { name: /Alumni Collaboration/ });
     expect(heading).toHaveTextContent("4");
 
     fireEvent.click(heading);
     // Once open the count belongs on the kind it applies to, not the heading.
     expect(screen.getByRole("link", { name: /Placement/ })).toHaveTextContent("4");
+  });
+
+  it("caps the rolled-up total instead of dropping the queue that overflowed", () => {
+    // Counts arrive as numbers precisely so this works: a pre-capped "99+"
+    // string parsed back as NaN and silently removed the largest queue from
+    // the sum, leaving the heading with no badge at all.
+    renderGroup("/dashboard", { badge: 150 });
+    expect(screen.getByRole("button", { name: /Alumni Collaboration/ })).toHaveTextContent("99+");
   });
 });

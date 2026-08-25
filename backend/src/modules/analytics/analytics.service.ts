@@ -1,4 +1,8 @@
 import { prisma } from "../../lib/prisma.js";
+import {
+  COLLABORATION_TYPES,
+  type CollaborationTypeName,
+} from "../../config/constants.js";
 import { Prisma, DegreeType } from "@prisma/client";
 import { paginationMeta } from "../../lib/pagination.js";
 import { sendBulkEmails } from "../../lib/mailer.js";
@@ -64,17 +68,24 @@ export const adminOverview = async () => {
         _count: { _all: true },
       }),
     ]);
-  const pendingPlacements =
-    pendingCollaboration.find((g) => g.type === "PLACEMENT")?._count._all ?? 0;
-  const pendingWorkshops =
-    pendingCollaboration.find((g) => g.type === "WORKSHOP")?._count._all ?? 0;
+  // Keyed by collaboration type so the admin sidebar can badge each kind, and
+  // a kind added to `COLLABORATION_TYPES` shows up here without a new field.
+  const pendingCollaborationByType = Object.fromEntries(
+    COLLABORATION_TYPES.map((t) => [
+      t,
+      pendingCollaboration.find((g) => g.type === t)?._count._all ?? 0,
+    ]),
+  ) as Record<CollaborationTypeName, number>;
+
   return {
     pendingUsers,
     pendingEvents,
     pendingJobs,
     pendingAchievements,
-    pendingPlacements,
-    pendingWorkshops,
+    pendingCollaboration: pendingCollaborationByType,
+    // Kept for older clients that read the two flat counters by name.
+    pendingPlacements: pendingCollaborationByType.PLACEMENT,
+    pendingWorkshops: pendingCollaborationByType.WORKSHOP,
   };
 };
 

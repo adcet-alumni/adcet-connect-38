@@ -14,6 +14,7 @@ import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
 import { sendEmail } from "../../lib/mailer.js";
 import { logger } from "../../lib/logger.js";
+import { formatDay } from "../../lib/dates.js";
 import {
   collaborationDecisionEmail,
   type CollaborationEmailData,
@@ -120,13 +121,13 @@ export const pendingCounts = async (): Promise<Record<CollaborationTypeName, num
     where: { status: "PENDING" },
     _count: { _all: true },
   });
-  const counts = { PLACEMENT: 0, WORKSHOP: 0 } as Record<CollaborationTypeName, number>;
+  const counts = { PLACEMENT: 0, WORKSHOP: 0, OTHER: 0 } as Record<CollaborationTypeName, number>;
   for (const row of grouped) counts[row.type as CollaborationTypeName] = row._count._all;
   return counts;
 };
 
-const dateText = (d: Date | null) =>
-  d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "";
+/** Day-only columns are rendered in UTC — see `lib/dates.ts`. */
+const dateText = (d: Date | null) => formatDay(d);
 
 const MODE_LABEL: Record<string, string> = {
   ON_CAMPUS: "On campus",
@@ -137,7 +138,11 @@ const MODE_LABEL: Record<string, string> = {
 /** The type-specific rows an email should show, in reading order. */
 const emailRows = (r: Prisma.CollaborationRequestGetPayload<object>) => {
   const rows: { label: string; value: string }[] = [];
-  if (r.type === "PLACEMENT") {
+  if (r.type === "OTHER") {
+    // No kind-specific columns — the description is the request, and it is
+    // already in the body of the mail above these rows.
+    if (r.startDate) rows.push({ label: "Preferred date", value: dateText(r.startDate) });
+  } else if (r.type === "PLACEMENT") {
     if (r.jobRole) rows.push({ label: "Role", value: r.jobRole });
     if (r.candidatesRequired != null)
       rows.push({ label: "Candidates required", value: String(r.candidatesRequired) });
@@ -166,6 +171,7 @@ const emailRows = (r: Prisma.CollaborationRequestGetPayload<object>) => {
 const KIND_LABEL: Record<CollaborationTypeName, string> = {
   PLACEMENT: "placement drive",
   WORKSHOP: "workshop",
+  OTHER: "collaboration",
 };
 
 /**

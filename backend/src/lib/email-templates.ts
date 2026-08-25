@@ -3,6 +3,8 @@
  * All templates share a consistent header/footer wrapper with portal branding.
  */
 
+import { formatDay } from "./dates.js";
+
 const PORTAL_URL = process.env.CORS_ORIGIN || "http://localhost:8080";
 
 /** Escape HTML special characters to prevent XSS in email templates. */
@@ -624,7 +626,7 @@ const achievementDetails = (a: AchievementEmailData): string => {
         ${a.occurredOn ? `
         <tr>
           <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #6c757d; font-size: 13px;">Date</td>
-          <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #2c3e50; font-size: 14px;">${new Date(a.occurredOn).toLocaleDateString()}</td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #2c3e50; font-size: 14px;">${formatDay(a.occurredOn)}</td>
         </tr>` : ""}
         ${a.link ? `
         <tr>
@@ -891,7 +893,7 @@ export const rsvpConfirmationHtml = (
 
 export interface CollaborationEmailData {
   id: string;
-  type: "PLACEMENT" | "WORKSHOP";
+  type: "PLACEMENT" | "WORKSHOP" | "OTHER";
   title: string;
   organization?: string | null;
   departments: string[];
@@ -922,10 +924,17 @@ const collaborationDetails = (c: CollaborationEmailData): string => `
 const COLLABORATION_LABEL: Record<CollaborationEmailData["type"], string> = {
   PLACEMENT: "placement drive",
   WORKSHOP: "workshop",
+  OTHER: "collaboration",
 };
 
-const collaborationPath = (type: CollaborationEmailData["type"]) =>
-  type === "PLACEMENT" ? "placement" : "workshop";
+/** Mirrors the `slug` of each kind in the frontend's `COLLABORATION_KINDS`. */
+const COLLABORATION_PATH: Record<CollaborationEmailData["type"], string> = {
+  PLACEMENT: "placement",
+  WORKSHOP: "workshop",
+  OTHER: "other",
+};
+
+const collaborationPath = (type: CollaborationEmailData["type"]) => COLLABORATION_PATH[type];
 
 /**
  * Sent to the requesting alumnus once an admin decides on their collaboration

@@ -178,9 +178,7 @@ const CollaborationPage = ({ type }: { type: CollaborationType }) => {
               minLength={3}
               value={form.title}
               onChange={(e) => set({ title: e.target.value })}
-              placeholder={
-                type === "PLACEMENT" ? "e.g. Infosys campus drive 2026" : "e.g. Hands-on Kubernetes"
-              }
+              placeholder={kind.titlePlaceholder}
             />
           </div>
 
@@ -197,11 +195,9 @@ const CollaborationPage = ({ type }: { type: CollaborationType }) => {
             />
           </div>
 
-          {type === "PLACEMENT" ? (
-            <PlacementFields form={form} set={set} />
-          ) : (
-            <WorkshopFields form={form} set={set} />
-          )}
+          {type === "PLACEMENT" && <PlacementFields form={form} set={set} />}
+          {type === "WORKSHOP" && <WorkshopFields form={form} set={set} />}
+          {type === "OTHER" && <OtherFields form={form} set={set} />}
 
           <DepartmentMultiSelect
             value={departments}
@@ -247,21 +243,24 @@ const CollaborationPage = ({ type }: { type: CollaborationType }) => {
             </div>
           </div>
 
+          {/* For most kinds this is the "anything else" box; for OTHER it is the
+              request itself, which is why the copy and the required flag come
+              from the kind rather than from a branch here. */}
           <div className="space-y-1.5">
             <Label htmlFor="description">
-              Anything else the office should know{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
+              {kind.description.label}{" "}
+              {!kind.description.required && (
+                <span className="text-muted-foreground font-normal">(optional)</span>
+              )}
             </Label>
             <Textarea
               id="description"
-              rows={4}
+              rows={kind.description.required ? 6 : 4}
+              required={kind.description.required}
+              minLength={kind.description.required ? 20 : undefined}
               value={form.description}
               onChange={(e) => set({ description: e.target.value })}
-              placeholder={
-                type === "PLACEMENT"
-                  ? "Selection rounds, bond details, travel arrangements…"
-                  : "Prerequisites, lab requirements, software to install…"
-              }
+              placeholder={kind.description.placeholder}
             />
           </div>
 
@@ -475,6 +474,26 @@ const PlacementFields = ({ form, set }: FieldProps) => (
   </>
 );
 
+/**
+ * The catch-all kind asks for one thing beyond the shared fields: when it would
+ * suit them. It reuses `startDate` — the column the workshop start date lives
+ * in — because a second "preferred date" column would mean the same thing
+ * twice.
+ */
+const OtherFields = ({ form, set }: FieldProps) => (
+  <div className="space-y-1.5">
+    <Label htmlFor="startDate">
+      Preferred date <span className="text-muted-foreground font-normal">(optional)</span>
+    </Label>
+    <Input
+      id="startDate"
+      type="date"
+      value={form.startDate}
+      onChange={(e) => set({ startDate: e.target.value })}
+    />
+  </div>
+);
+
 const WorkshopFields = ({ form, set }: FieldProps) => (
   <>
     <div className="space-y-1.5">
@@ -681,6 +700,17 @@ const buildPayload = (
     attachmentKey: attachment?.key,
     attachmentName: attachment?.name,
   };
+
+  if (type === "OTHER") {
+    return {
+      ...common,
+      type: "OTHER",
+      // Required for this kind — `common.description` is optional, so it is
+      // restated here rather than trusted to be present.
+      description: form.description.trim(),
+      startDate: form.startDate || undefined,
+    };
+  }
 
   if (type === "PLACEMENT") {
     return {

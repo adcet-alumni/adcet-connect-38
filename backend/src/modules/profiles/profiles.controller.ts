@@ -1,11 +1,17 @@
 import type { Request, Response } from "express";
+import { isAdmin } from "../../middlewares/rbac.js";
 import * as service from "./profiles.service.js";
 
 export const me = async (req: Request, res: Response) =>
   res.json(await service.getMyProfile(req.auth!.sub));
 
 export const byUserId = async (req: Request, res: Response) =>
-  res.json(await service.getProfileByUserId(req.params.userId));
+  res.json(
+    await service.getProfileByUserId(req.params.userId, {
+      id: req.auth!.sub,
+      isAdmin: isAdmin(req),
+    }),
+  );
 
 export const updateMe = async (req: Request, res: Response) =>
   res.json(await service.updateMyProfile(req.auth!.sub, req.body));

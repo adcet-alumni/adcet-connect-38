@@ -13,6 +13,7 @@ import { LoadingGrid } from "@/components/LoadingGrid";
 import { EmptyState } from "@/components/EmptyState";
 import RejectReasonDialog from "@/components/RejectReasonDialog";
 import AchievementCardMedia from "@/components/AchievementCardMedia";
+import AchievementFormDialog from "@/components/AchievementFormDialog";
 import { safeExternalUrl } from "@/lib/urls";
 
 interface AchievementItem {
@@ -26,6 +27,8 @@ interface AchievementItem {
   link?: string | null;
   status: "PENDING" | "APPROVED" | "REJECTED";
   rejectionReason?: string | null;
+  /** Set when the office recorded this for somebody off the portal. */
+  achieverName?: string | null;
   user?: { id: string; firstName: string; lastName: string } | null;
 }
 interface Paginated<T> {
@@ -78,9 +81,19 @@ const AchievementsAdminPage = () => {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Achievements</h1>
-        <p className="text-muted-foreground text-sm mt-1">Review alumni achievements.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Achievements</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Review alumni achievements, or record one yourself.
+          </p>
+        </div>
+        {/* The same form the alumni use, plus the question of whose it is.
+            An admin's entry is live immediately — see `adminCreate`. */}
+        <AchievementFormDialog
+          admin
+          onCreated={() => qc.invalidateQueries({ queryKey: ["admin", "achievements"] })}
+        />
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -121,7 +134,14 @@ const AchievementsAdminPage = () => {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h3 className="font-semibold text-foreground text-sm line-clamp-2">{a.title}</h3>
-                    {a.user ? (
+                    {/* An entry the office recorded for a non-member has no
+                        account to link to — its byline is the name typed in. */}
+                    {a.achieverName ? (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {a.achieverName}{" "}
+                        <span className="italic">· added by the office</span>
+                      </p>
+                    ) : a.user ? (
                       <Link
                         to={`/admin/users/${a.user.id}`}
                         className="text-xs text-muted-foreground mt-0.5 truncate hover:underline hover:text-foreground block"
