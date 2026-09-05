@@ -28,6 +28,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { uploadFile } from "@/lib/upload";
 import DepartmentMultiSelect from "@/components/DepartmentMultiSelect";
 import { toast } from "@/hooks/use-toast";
@@ -394,7 +395,7 @@ const AdminCreateJobDialog = ({ onCreated }: { onCreated: () => void }) => {
       setForm({ title: "", company: "", location: "", description: "", employmentType: "FULL_TIME", vacancies: "", isRemote: false, salaryMin: "", salaryMax: "", departments: [] });
       setAttachFile(null);
     },
-    onError: (e: any) => toast({ title: "Could not create job", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Could not create job", description: errorMessage(e), variant: "destructive" }),
   });
 
   return (

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../../lib/asyncHandler.js";
-import { optionalAuth, requireAuth } from "../../middlewares/auth.js";
+import { requireAuth } from "../../middlewares/auth.js";
 import { requireAdmin } from "../../middlewares/rbac.js";
 import { requireApproved } from "../../middlewares/requireApproved.js";
 import { validate } from "../../middlewares/validate.js";

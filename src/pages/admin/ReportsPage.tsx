@@ -115,6 +115,10 @@ const printRows = (title: string, subtitle: string, rows: Row[]) => {
 };
 
 /* --------------------------------- page ---------------------------------- */
+/** One stable empty fallback — see `NO_BREAKDOWN` in AdminGeoMapPage: a
+ *  fresh `[]` per render makes the pagination `useMemo` recompute always. */
+const NO_ROWS: Row[] = [];
+
 const ReportsPage = () => {
   const [typeValue, setTypeValue] = useState("users");
   const [from, setFrom] = useState("");
@@ -142,7 +146,7 @@ const ReportsPage = () => {
     placeholderData: (prev) => prev,
   });
 
-  const rows = data?.rows ?? [];
+  const rows = data?.rows ?? NO_ROWS;
   const summary = data?.summary ?? {};
   const headers = rows.length ? Object.keys(rows[0]) : [];
 

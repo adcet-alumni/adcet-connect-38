@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { uploadFile } from "@/lib/upload";
 import DepartmentMultiSelect from "@/components/DepartmentMultiSelect";
 import { fetchChapters } from "@/lib/chapters";
@@ -85,7 +86,7 @@ const EventsPage = () => {
       toast({ title: "RSVP confirmed", description: "You're registered." });
       qc.invalidateQueries({ queryKey: ["events"] });
     },
-    onError: (err: any) => toast({ title: "RSVP failed", description: err?.message, variant: "destructive" }),
+    onError: (err: unknown) => toast({ title: "RSVP failed", description: errorMessage(err), variant: "destructive" }),
   });
 
   return (
@@ -288,7 +289,7 @@ const CreateEventDialog = ({
       setDepartments([]);
       setAttachFile(null);
     },
-    onError: (err: any) => toast({ title: "Could not create event", description: err?.message, variant: "destructive" }),
+    onError: (err: unknown) => toast({ title: "Could not create event", description: errorMessage(err), variant: "destructive" }),
   });
 
   return (

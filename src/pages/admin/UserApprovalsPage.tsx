@@ -184,7 +184,7 @@ const UserApprovalsPage = () => {
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
-        <Select value={filter} onValueChange={(v) => { setFilter(v as any); setPage(1); setSelectedIds(new Set()); }}>
+        <Select value={filter} onValueChange={(v) => { setFilter(v as "all" | ApprovalStatus); setPage(1); setSelectedIds(new Set()); }}>
           <SelectTrigger className="w-full sm:w-[180px]">
             <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
             <SelectValue placeholder="Status" />

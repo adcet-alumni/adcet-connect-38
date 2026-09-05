@@ -5,13 +5,13 @@ import { Search, MapPin, Briefcase, Building2, Users2, Plus, Loader2, BriefcaseB
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { uploadFile } from "@/lib/upload";
 import { DEPARTMENT_FILTER_OPTIONS as DEPARTMENTS } from "@/lib/departments";
 import DepartmentMultiSelect from "@/components/DepartmentMultiSelect";
@@ -252,7 +252,7 @@ const CreateJobDialog = ({ onCreated }: { onCreated: () => void }) => {
       setDepartments([]);
       setAttachFile(null);
     },
-    onError: (e: any) => toast({ title: "Could not post job", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Could not post job", description: errorMessage(e), variant: "destructive" }),
   });
   return (
     <Dialog open={open} onOpenChange={setOpen}>

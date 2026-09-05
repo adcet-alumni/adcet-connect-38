@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { storageUrl } from "@/lib/storage";
 import { uploadFile } from "@/lib/upload";
 import { useAuth } from "@/contexts/AuthContext";
@@ -49,12 +50,17 @@ const WRITABLE_FIELDS: (keyof Profile)[] = [
   "currentCompany", "currentRole", "avatarKey",
 ];
 
-const pickWritable = (p: Profile): Profile =>
-  WRITABLE_FIELDS.reduce((acc, k) => {
-    const v = (p as any)[k];
-    if (v !== undefined) (acc as any)[k] = v;
-    return acc;
-  }, {} as Profile);
+const pickWritable = (p: Profile): Profile => {
+  const out: Profile = {};
+  for (const key of WRITABLE_FIELDS) {
+    // `Object.assign` is what avoids a cast here: `out[key] = p[key]` asks
+    // TypeScript to prove the value type matches for *every* member of the
+    // `keyof Profile` union at once, which it can't, so the direct assignment
+    // needs an `any` on both sides. This doesn't.
+    if (p[key] !== undefined) Object.assign(out, { [key]: p[key] });
+  }
+  return out;
+};
 
 const ProfilePage = () => {
   const { user } = useAuth();
@@ -78,7 +84,7 @@ const ProfilePage = () => {
       setEditing(false);
       qc.invalidateQueries({ queryKey: ["profile"] });
     },
-    onError: (e: any) => toast({ title: "Update failed", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Update failed", description: errorMessage(e), variant: "destructive" }),
   });
 
   const avatarUrl = storageUrl(profile.data?.avatarKey);
@@ -94,8 +100,8 @@ const ProfilePage = () => {
       await api.patch("/profiles/me", { avatarKey: key });
       toast({ title: "Photo updated" });
       qc.invalidateQueries({ queryKey: ["profile"] });
-    } catch (e: any) {
-      toast({ title: "Upload failed", description: e?.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Upload failed", description: errorMessage(e), variant: "destructive" });
     } finally {
       setUploading(false);
     }

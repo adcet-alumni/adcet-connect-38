@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 
 const SupportContactForm = () => {
@@ -29,8 +30,8 @@ const SupportContactForm = () => {
       setSubject("");
       setMessage("");
     },
-    onError: (e: any) =>
-      toast({ title: "Failed to send", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) =>
+      toast({ title: "Failed to send", description: errorMessage(e), variant: "destructive" }),
   });
 
   return (

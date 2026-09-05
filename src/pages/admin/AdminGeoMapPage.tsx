@@ -30,6 +30,10 @@ const downloadText = (filename: string, mime: string, content: string) => {
   a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
 };
 
+/** One stable empty fallback. `data ?? []` would allocate a new array every
+ *  render, so the `useMemo` keyed on it would never actually hit its cache. */
+const NO_BREAKDOWN: CityBreakdown[] = [];
+
 const AdminGeoMapPage = () => {
   const [groupBy, setGroupBy] = useState<GroupBy>("city");
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -39,7 +43,7 @@ const AdminGeoMapPage = () => {
     queryKey: ["geo", "breakdown"],
     queryFn: () => api.get<CityBreakdown[]>("/geo/breakdown"),
   });
-  const breakdown = data ?? [];
+  const breakdown = data ?? NO_BREAKDOWN;
 
   // City-grouped (as returned) and the inverted company-grouped view.
   const { cityNodes, companyNodes, grandTotal, totalCompanies } = useMemo(() => {

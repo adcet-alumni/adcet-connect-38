@@ -172,6 +172,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 };
 
+// `useAuth` lives beside its provider on purpose: every consumer imports it
+// from here, and moving it to a separate module purely to regain fast-refresh
+// granularity would rewrite those imports across the app for a dev-only benefit.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const ctx = useContext(AuthCtx);
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");

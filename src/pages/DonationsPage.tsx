@@ -7,13 +7,32 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAuth } from "@/contexts/AuthContext";
+
+/**
+ * What Razorpay Checkout hands back on a successful payment. These three
+ * fields are exactly what the backend re-computes the HMAC over, so this is
+ * the contract that matters — not the rest of the widget's payload.
+ */
+interface RazorpaySuccess {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+/** The `payment.failed` event payload — a reason to show the donor, if any. */
+interface RazorpayFailure {
+  error?: { description?: string };
+}
 
 declare global {
   interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void; on: (e: string, cb: (r: unknown) => void) => void };
+    Razorpay?: new (options: Record<string, unknown>) => {
+      open: () => void;
+      on: (event: "payment.failed", cb: (r: RazorpayFailure) => void) => void;
+    };
   }
 }
 
@@ -68,7 +87,6 @@ const loadRazorpay = (): Promise<boolean> =>
 
 const DonationsPage = () => {
   const qc = useQueryClient();
-  const { user } = useAuth();
   const [preset, setPreset] = useState<number | "other">(1000);
   // "" = the general alumni fund, which stays a valid choice.
   const [campaignId, setCampaignId] = useState("");
@@ -116,10 +134,10 @@ const DonationsPage = () => {
       qc.invalidateQueries({ queryKey: ["donations"] });
       setMessage("");
     },
-    onError: (e: any) =>
+    onError: (e: unknown) =>
       toast({
         title: "Could not confirm payment",
-        description: e?.message ?? "If money was deducted, it will be reconciled automatically.",
+        description: errorMessage(e, "If money was deducted, it will be reconciled automatically."),
         variant: "destructive",
       }),
   });
@@ -154,7 +172,7 @@ const DonationsPage = () => {
         prefill: { name: order.donorName, email: order.donorEmail },
         notes: { donationId: order.donationId },
         theme: { color: "#1e3a5f" },
-        handler: (resp: any) => {
+        handler: (resp: RazorpaySuccess) => {
           verify.mutate({
             razorpay_order_id: resp.razorpay_order_id,
             razorpay_payment_id: resp.razorpay_payment_id,
@@ -169,7 +187,7 @@ const DonationsPage = () => {
           },
         },
       });
-      rzp.on("payment.failed", (resp: any) => {
+      rzp.on("payment.failed", (resp: RazorpayFailure) => {
         setProcessing(false);
         toast({
           title: "Payment failed",
@@ -178,9 +196,9 @@ const DonationsPage = () => {
         });
       });
       rzp.open();
-    } catch (e: any) {
+    } catch (e: unknown) {
       setProcessing(false);
-      toast({ title: "Donation failed", description: e?.message, variant: "destructive" });
+      toast({ title: "Donation failed", description: errorMessage(e), variant: "destructive" });
     }
   };
 

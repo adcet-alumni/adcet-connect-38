@@ -85,8 +85,7 @@ describe("chapters stay read-only for members", () => {
   ];
 
   it.each(writes)("403s an approved member on %s %s", async (method, path, body) => {
-    const res = await (request(app) as any)
-      [method](path)
+    const res = await (request(app) as any)[method](path)
       .set("Authorization", bearer(memberToken))
       .send(body);
 

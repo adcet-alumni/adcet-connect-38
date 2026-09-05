@@ -31,3 +31,20 @@ export const NotImplemented = (message = "Not implemented") =>
   new ApiError(501, "NOT_IMPLEMENTED", message);
 export const ServiceUnavailable = (message = "Service unavailable", details?: unknown) =>
   new ApiError(503, "SERVICE_UNAVAILABLE", message, details);
+
+/**
+ * The message carried by an unknown thrown value.
+ *
+ * The `catch` blocks that report a *partial* failure — the bulk approval loop,
+ * the department verification loop, the emailed chapter-invitation reply —
+ * need the message to put in their per-row error list, and `catch (e: any)` is
+ * how that used to be written. Narrowing from `unknown` in one place is what
+ * lets every one of them stay type-safe: a Prisma error, an `ApiError` and a
+ * plain `throw "..."` are all handled here rather than assumed at each site.
+ */
+export const errorMessage = (error: unknown, fallback = "Unknown error"): string =>
+  error instanceof Error && error.message
+    ? error.message
+    : typeof error === "string" && error
+      ? error
+      : fallback;

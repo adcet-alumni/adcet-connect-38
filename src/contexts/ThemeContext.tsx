@@ -100,6 +100,11 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>;
 };
 
+// `useTheme` and `initTheme` live beside the provider on purpose: every
+// consumer imports them from here, and moving them to a separate module purely
+// to regain fast-refresh granularity would rewrite those imports across the app
+// for a dev-only benefit.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useTheme = () => {
   const ctx = useContext(ThemeCtx);
   if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider>");
@@ -107,6 +112,7 @@ export const useTheme = () => {
 };
 
 /** Call once before React renders to prevent FOUC. */
+// eslint-disable-next-line react-refresh/only-export-components -- see useTheme above
 export const initTheme = () => {
   const { theme, darkMode } = readStored();
   applyTheme(theme, darkMode);

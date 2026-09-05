@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import EventCardMedia from "@/components/EventCardMedia";
 import { api, isNotFoundError } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { EmptyState } from "@/components/EmptyState";
 import { toast } from "@/hooks/use-toast";
 import { safeExternalUrl } from "@/lib/urls";
@@ -42,7 +43,7 @@ const EventDetailPage = () => {
   const rsvp = useMutation({
     mutationFn: () => api.post(`/events/${id}/rsvp`, { status: "GOING" }),
     onSuccess: () => toast({ title: "RSVP confirmed" }),
-    onError: (e: any) => toast({ title: "RSVP failed", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "RSVP failed", description: errorMessage(e), variant: "destructive" }),
   });
 
   const downloadAttachment = async () => {

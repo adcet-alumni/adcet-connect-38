@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it } from "@jest/globals";
 import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 import { errorHandler } from "../../middlewares/errorHandler.js";

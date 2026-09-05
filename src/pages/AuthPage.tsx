@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { api, apiUrl } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { DEPARTMENTS as departments } from "@/lib/departments";
 import {
   DEGREES as degrees,
@@ -143,8 +144,8 @@ const AuthPage = () => {
       const me = await login(loginEmail.trim(), loginPassword);
       toast({ title: "Welcome back", description: `Signed in as ${me.firstName} ${me.lastName}` });
       navigate(landingRouteFor(me), { replace: true });
-    } catch (err: any) {
-      toast({ title: "Sign-in failed", description: err?.message ?? "Check your credentials", variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Sign-in failed", description: errorMessage(err, "Check your credentials"), variant: "destructive" });
     } finally {
       setLoggingIn(false);
     }
@@ -174,8 +175,8 @@ const AuthPage = () => {
       }
       setResendCooldown(30);
       setRegStep(3);
-    } catch (err: any) {
-      toast({ title: "Could not send code", description: err?.message ?? "Please try again", variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Could not send code", description: errorMessage(err, "Please try again"), variant: "destructive" });
     } finally {
       setSendingOtp(false);
     }
@@ -224,8 +225,8 @@ const AuthPage = () => {
           : "You're all set!",
       });
       navigate(landingRouteFor(me), { replace: true });
-    } catch (err: any) {
-      toast({ title: "Registration failed", description: err?.message ?? "Please try again", variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Registration failed", description: errorMessage(err, "Please try again"), variant: "destructive" });
     } finally {
       setRegistering(false);
     }

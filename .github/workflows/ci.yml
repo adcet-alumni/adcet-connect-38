@@ -21,46 +21,40 @@ jobs:
 
     - name: Install frontend dependencies
       run: npm ci
-      # ok
 
     - name: Install backend dependencies
       run: |
         cd backend
         npm ci
-      # ok
 
+    # The flat config at the repo root covers backend/src too, so this step
+    # lints both apps; the one below re-runs it scoped to the backend.
     - name: Lint frontend
       run: npm run lint
-      # Not Passing
 
     - name: Lint backend
       run: |
         cd backend
         npm run lint
-      # Not Passing
 
+    # Must precede the backend build — `tsc` reads the generated client's types.
     - name: Generate Prisma client
       run: |
         cd backend
         npm run prisma:generate
-      # Not Sure
 
     - name: Build frontend
       run: npm run build
-      # ok
 
     - name: Build backend
       run: |
         cd backend
         npm run build
-      # Errors
 
     - name: Run frontend tests
       run: npm run test
-      # No tests
 
     - name: Run backend tests
       run: |
         cd backend
         npm run test
-      # Passing All Tests

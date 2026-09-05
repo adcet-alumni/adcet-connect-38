@@ -4,8 +4,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, User, Users, Briefcase, Calendar, Heart, Trophy, MapPin, BarChart3,
   Bell, ChevronDown, Menu, X, MessageCircle, LogOut, Settings, ChevronLeft, ShieldCheck, Send, Loader2,
-  Home, Info, MoreHorizontal, Newspaper, Network, Handshake
+  Newspaper, Network, Handshake
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -45,7 +46,23 @@ const collaborationItems = COLLABORATION_KIND_LIST.map((k) => ({
   path: `/dashboard/collaboration/${k.slug}`,
 }));
 
-const sidebarItems = [
+/**
+ * One row of the member sidebar. `group` and `admin` are set on a minority of
+ * rows, so the array needs an explicit element type: inferred from the literal
+ * alone, TypeScript widens to a union in which neither key exists on every
+ * member, and reading them back needs a cast at each use site.
+ */
+interface SidebarItem {
+  label: string;
+  path: string;
+  icon: LucideIcon;
+  /** Renders a collapsible `SidebarNavGroup` instead of a plain link. */
+  group?: boolean;
+  /** Reached through the admin shortcut in the header, not the member nav. */
+  admin?: boolean;
+}
+
+const sidebarItems: SidebarItem[] = [
   { label: "Feed", path: "/dashboard/feed", icon: Newspaper },
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "Profile", path: "/dashboard/profile", icon: User },
@@ -135,8 +152,8 @@ const DashboardLayout = () => {
    */
   const sidebar = (
     <nav className="p-3 space-y-1">
-      {visibleSidebar.filter(i => !(i as any).admin).map(item => (
-        (item as { group?: boolean }).group ? (
+      {visibleSidebar.filter(i => !i.admin).map(item => (
+        item.group ? (
           <SidebarNavGroup
             key={item.path}
             label={item.label}

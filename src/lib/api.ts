@@ -99,6 +99,21 @@ export const shouldRetryQuery = (failureCount: number, error: unknown): boolean 
   return failureCount < 2;
 };
 
+/**
+ * The error body the backend sends — `{ error: { code, message, details } }`,
+ * built by `middlewares/errorHandler.ts`. Every field is optional here because
+ * this describes a *parsed response*, not a promise: a proxy, a gateway or a
+ * crash can put anything on the wire, and the reader below falls back through
+ * the shapes rather than trusting one.
+ */
+interface ErrorEnvelope {
+  code?: string;
+  message?: string;
+  details?: { fieldErrors?: Record<string, string[]> };
+}
+
+type ErrorPayload = { error?: ErrorEnvelope } & ErrorEnvelope;
+
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 interface RequestOptions {
@@ -185,9 +200,9 @@ export async function apiRequest<T = unknown>(path: string, opts: RequestOptions
   if (res.status === 204) return undefined as T;
 
   if (!res.ok) {
-    let payload: any = null;
+    let payload: ErrorPayload | null = null;
     try {
-      payload = await res.json();
+      payload = (await res.json()) as ErrorPayload;
     } catch {
       /* ignore */
     }
@@ -198,7 +213,7 @@ export async function apiRequest<T = unknown>(path: string, opts: RequestOptions
     let message: string = err?.message ?? `Request failed with ${res.status}`;
     // Zod validation errors carry per-field messages in details.fieldErrors —
     // surface them so toasts say *what* failed, not just "Validation failed".
-    const fieldErrors = err?.details?.fieldErrors as Record<string, string[]> | undefined;
+    const fieldErrors = err?.details?.fieldErrors;
     if (fieldErrors && typeof fieldErrors === "object") {
       const parts = Object.entries(fieldErrors)
         .filter(([, msgs]) => Array.isArray(msgs) && msgs.length)
@@ -256,9 +271,9 @@ export async function uploadFile(
     body: file,
   });
   if (!res.ok) {
-    let payload: any = null;
+    let payload: ErrorPayload | null = null;
     try {
-      payload = await res.json();
+      payload = (await res.json()) as ErrorPayload;
     } catch {
       /* ignore */
     }

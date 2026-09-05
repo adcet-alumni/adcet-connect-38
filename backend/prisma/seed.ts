@@ -455,7 +455,7 @@ async function main() {
     status: "APPROVED",
     createdById: bob.id,
   });
-  const job4 = await upsertJob("job4", {
+  await upsertJob("job4", {
     title: "Founding Product Engineer",
     company: "EduSpark",
     location: "Pune",
@@ -501,7 +501,7 @@ async function main() {
     status: "APPROVED",
     createdById: alice.id,
   });
-  const evt3 = await upsertEvent({
+  await upsertEvent({
     title: "Founder AMA with Rahul Desai",
     description: "From campus to startup CEO — open Q&A.",
     location: "ADCET Auditorium",

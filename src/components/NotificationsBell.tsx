@@ -7,7 +7,6 @@ import { useEffect, useState } from "react";
 import { Bell, Check, CheckCheck, Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
