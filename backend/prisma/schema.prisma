@@ -2,12 +2,21 @@
 // Source of truth for DB structure. Keep in sync with backend/openapi.yaml.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // `postgresqlExtensions` lets the `pg_trgm` extension and the GIN indexes
+  // that depend on it be declared here rather than hand-written into a
+  // migration. That keeps this file the single source of truth: an index
+  // created only in SQL reads as drift the next time anyone runs
+  // `prisma migrate dev`, and would eventually be dropped by it.
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // Trigram matching, so `contains` searches can use an index. See the GIN
+  // indexes on User, Profile and Post.
+  extensions = [pg_trgm]
 }
 
 // =====================================================================
@@ -124,6 +133,12 @@ model User {
   collaborationReviews  CollaborationRequest[] @relation("CollaborationReviewer")
 
   @@index([status])
+  /// Trigram indexes. Both columns are reachable by a `contains` search,
+  /// which Prisma compiles to `ILIKE '%term%'` — a leading wildcard, which no
+  /// B-tree can serve. GIN + `gin_trgm_ops` is what makes that pattern an
+  /// index probe rather than a scan of the whole table.
+  @@index([firstName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([lastName(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 /// Roles live in a separate table to prevent privilege escalation via profile updates.
@@ -245,6 +260,12 @@ model Profile {
   @@index([city])
   @@index([currentCompany])
   @@index([graduationYear])
+  /// Trigram index. Every one of these columns is reachable by a
+  /// `contains` search, which Prisma compiles to `ILIKE '%term%'` — a
+  /// leading wildcard, which no B-tree can serve. GIN + `gin_trgm_ops`
+  /// is what makes that pattern an index probe instead of a scan.
+  @@index([currentCompany(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_currentCompany_trgm_idx")
+  @@index([city(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_city_trgm_idx")
   /// The directory's default ordering groups by "same department as the
   /// viewer", then walks outwards from their batch — both columns, together.
   @@index([department, graduationYear])
@@ -829,6 +850,11 @@ model Post {
 
   @@index([createdAt])
   @@index([authorId, createdAt])
+  /// Trigram index. Every one of these columns is reachable by a
+  /// `contains` search, which Prisma compiles to `ILIKE '%term%'` — a
+  /// leading wildcard, which no B-tree can serve. GIN + `gin_trgm_ops`
+  /// is what makes that pattern an index probe instead of a scan.
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 /// Attached image/video. Max 2 images OR 1 video per post (enforced in the
