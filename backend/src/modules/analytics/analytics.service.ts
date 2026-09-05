@@ -294,6 +294,28 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
     ...(dept && { department: dept }),
   };
 
+  /*
+   * A department narrows an event or a job through `departments` — the
+   * `String[]` column that replaced the single nullable `department` in
+   * migration `20260803150000_multi_department_targeting`. `has` is the same
+   * filter `events.service.ts` and `jobs.service.ts` apply on their own read
+   * paths, so "aimed at X" means the same thing here as it does there, and
+   * postings open to everyone (an empty array) are excluded from a
+   * department-specific view rather than counted into all of them.
+   *
+   * These are annotated rather than spread inline on purpose: an unknown key
+   * inside a spread is not excess-property-checked, which is exactly how
+   * `{ department: dept }` survived `tsc` here and 500ed at runtime instead.
+   */
+  const eventWhere: Prisma.EventWhereInput = {
+    ...created,
+    ...(dept && { departments: { has: dept } }),
+  };
+  const jobWhere: Prisma.JobWhereInput = {
+    ...created,
+    ...(dept && { departments: { has: dept } }),
+  };
+
   const [users, events, jobs, donations, achievements, totalAlumni, byDepartment, byYear, topCompanies, topCities] =
     await Promise.all([
       prisma.user.findMany({
@@ -301,11 +323,11 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
         select: { createdAt: true, status: true },
       }),
       prisma.event.findMany({
-        where: { ...created, ...(dept && { department: dept }) },
+        where: eventWhere,
         select: { createdAt: true, status: true, _count: { select: { rsvps: true } } },
       }),
       prisma.job.findMany({
-        where: { ...created, ...(dept && { department: dept }) },
+        where: jobWhere,
         select: { createdAt: true, status: true, isClosed: true },
       }),
       prisma.donation.findMany({

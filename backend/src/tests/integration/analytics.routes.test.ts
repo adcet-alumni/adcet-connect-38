@@ -79,3 +79,67 @@ describe("/analytics", () => {
     expect(res.body.pendingWorkshops).toBe(0);
   });
 });
+
+/**
+ * The admin insights dashboard, filtered by department.
+ *
+ * `Event` and `Job` carry `departments: String[]`, not the single nullable
+ * `department` column that migration `20260803150000_multi_department_targeting`
+ * removed. `adminInsights` kept filtering on the old name, so picking any
+ * department in the dashboard's dropdown threw `PrismaClientValidationError`
+ * and blanked the whole payload — KPIs, trends and distributions, not just the
+ * two series involved.
+ *
+ * These tests read the `where` the service asked Prisma for, the way
+ * `person-select.test.ts` reads the `select`. That is deliberate: the deep mock
+ * accepts any arguments, so a test that only asserts a 200 would have passed
+ * against the broken code. The argument shape is where the bug lived, so the
+ * argument shape is what gets pinned.
+ */
+describe("/analytics/admin/insights department filter", () => {
+  const DEPT = "Computer Science and Engineering";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.user.findUnique.mockResolvedValue({ id: "admin-1", status: "APPROVED" } as any);
+    for (const model of ["user", "event", "job", "donation", "achievement"] as const) {
+      prisma[model].findMany.mockResolvedValue([] as any);
+    }
+    prisma.profile.count.mockResolvedValue(0);
+    prisma.profile.groupBy.mockResolvedValue([] as any);
+  });
+
+  const insights = (query = "") =>
+    request(app)
+      .get(`/api/v1/analytics/admin/insights${query}`)
+      .set("Authorization", bearer(adminToken));
+
+  it("narrows events and jobs through the departments array", async () => {
+    const res = await insights(`?department=${encodeURIComponent(DEPT)}`);
+    expect(res.status).toBe(200);
+
+    for (const model of [prisma.event, prisma.job]) {
+      const where = (model.findMany.mock.calls[0][0] as any).where;
+      expect(where.departments).toEqual({ has: DEPT });
+      // The column this used to name does not exist on either model.
+      expect(where).not.toHaveProperty("department");
+    }
+  });
+
+  it("narrows alumni through the profile's own department column", async () => {
+    await insights(`?department=${encodeURIComponent(DEPT)}`);
+    const where = (prisma.user.findMany.mock.calls[0][0] as any).where;
+    // `User` reaches a department through its profile — a scalar, not a list.
+    expect(where.profile).toEqual({ department: DEPT });
+  });
+
+  it("applies no department clause at all when none is asked for", async () => {
+    const res = await insights();
+    expect(res.status).toBe(200);
+    for (const model of [prisma.event, prisma.job]) {
+      const where = (model.findMany.mock.calls[0][0] as any).where;
+      expect(where).not.toHaveProperty("departments");
+      expect(where).not.toHaveProperty("department");
+    }
+  });
+});
