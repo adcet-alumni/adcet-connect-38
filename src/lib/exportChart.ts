@@ -1,10 +1,17 @@
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
-
+/**
+ * Chart export. Both renderers are loaded on demand.
+ *
+ * html2canvas and jsPDF are ~850 kB together and are reached only when an
+ * admin clicks an export button. Imported statically they landed in the
+ * analytics page's chunk, which every admin downloaded on the way to *looking*
+ * at the dashboard. `pdfCover.ts` already loads pdfjs-dist the same way.
+ */
 const CAPTURE_BG = "#ffffff";
 
-const capture = (el: HTMLElement) =>
-  html2canvas(el, { scale: 2, backgroundColor: CAPTURE_BG, logging: false, useCORS: true });
+const capture = async (el: HTMLElement) => {
+  const { default: html2canvas } = await import("html2canvas");
+  return html2canvas(el, { scale: 2, backgroundColor: CAPTURE_BG, logging: false, useCORS: true });
+};
 
 /** Export a single element (e.g. a chart card) as a PNG download. */
 export const exportElementPng = async (el: HTMLElement, filename: string) => {
@@ -24,6 +31,7 @@ export const exportElementsPdf = async (
   filename: string,
   title?: string,
 ) => {
+  const { default: jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();

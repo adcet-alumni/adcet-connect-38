@@ -2,70 +2,93 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import AuthPage from "./pages/AuthPage";
-import CompleteProfilePage from "./pages/CompleteProfilePage";
 import LandingPage from "./pages/LandingPage";
-import AboutPage from "./pages/AboutPage";
-import ContactPage from "./pages/ContactPage";
-import NewsPage from "./pages/NewsPage";
-import NewslettersPage from "./pages/NewslettersPage";
-import EsteemedAlumniPage from "./pages/EsteemedAlumniPage";
-import GalleryPage from "./pages/GalleryPage";
-import AlumniMapPage from "./pages/AlumniMapPage";
-import TestimonialsPage from "./pages/TestimonialsPage";
-import SupportPage from "./pages/SupportPage";
-import DashboardLayout from "./components/DashboardLayout";
-import DashboardHome from "./pages/DashboardHome";
-import FeedPage from "./pages/FeedPage";
-import PostDetailPage from "./pages/PostDetailPage";
-import EventsPage from "./pages/EventsPage";
-import JobsPage from "./pages/JobsPage";
-import JobDetailPage from "./pages/JobDetailPage";
-import EventDetailPage from "./pages/EventDetailPage";
-import MyJobPostsPage from "./pages/MyJobPostsPage";
-import NotificationsPage from "./pages/NotificationsPage";
-import NotificationPage from "./pages/NotificationPage";
-import ProfilePage from "./pages/ProfilePage";
-import AchievementsPage from "./pages/AchievementsPage";
-import DonationsPage from "./pages/DonationsPage";
-import GeoMapPage from "./pages/GeoMapPage";
-import ChaptersPage from "./pages/ChaptersPage";
-import CollaborationPage from "./pages/CollaborationPage";
-import AnalyticsPage from "./pages/AnalyticsPage";
-import AlumniDirectoryPage from "./pages/AlumniDirectoryPage";
 import NotFound, { AdminNotFound, DashboardNotFound } from "./pages/NotFound";
-import AchievementDetailPage from "./pages/AchievementDetailPage";
-import PublicAchievementPage from "./pages/PublicAchievementPage";
-import ResetPasswordPage from "./pages/ResetPasswordPage";
-import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import { shouldRetryQuery } from "./lib/api";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // Admin
-import AdminLayout from "./components/AdminLayout";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import UserApprovalsPage from "./pages/admin/UserApprovalsPage";
-import EventApprovalsPage from "./pages/admin/EventApprovalsPage";
-import JobApprovalsPage from "./pages/admin/JobApprovalsPage";
-import AchievementsAdminPage from "./pages/admin/AchievementsAdminPage";
-import DonationsAdminPage from "./pages/admin/DonationsAdminPage";
-import AdminAnalyticsPage from "./pages/admin/AdminAnalyticsPage";
-import ReportsPage from "./pages/admin/ReportsPage";
-import SettingsPage from "./pages/admin/SettingsPage";
-import AdminGeoMapPage from "./pages/admin/AdminGeoMapPage";
-import ChaptersAdminPage from "./pages/admin/ChaptersAdminPage";
-import NewsroomPage from "./pages/admin/NewsroomPage";
-import GalleryAdminPage from "./pages/admin/GalleryAdminPage";
-import CollaborationAdminPage from "./pages/admin/CollaborationAdminPage";
-import StaticContentPage from "./pages/StaticContentPage";
-import AccountStatusPage from "./pages/AccountStatusPage";
 import AccountStatusGate from "./components/AccountStatusGate";
-import SupportInboxPage from "./pages/admin/SupportInboxPage";
-import FeedModerationPage from "./pages/admin/FeedModerationPage";
-import AdminUserDetailPage from "./pages/admin/AdminUserDetailPage";
 import { ThemeProvider } from "./contexts/ThemeContext";
+
+
+/*
+ * Every route below the landing page and the auth forms is code-split.
+ *
+ * All 68 routes used to be eager imports in this file, so a first-time visitor
+ * landing on the public marketing page downloaded, parsed and executed the
+ * entire admin panel, every Recharts chart, Leaflet and supercluster, jsPDF
+ * and html2canvas, and all 27 Radix packages before the page became
+ * interactive — 2.26 MB of JavaScript for a page that renders none of it.
+ *
+ * The landing page and AuthPage stay eager on purpose: they are the first
+ * paint and the hop most visitors make next, and splitting them would only add
+ * a round trip. NotFound stays because it has named exports, which React.lazy
+ * cannot take, and it is a few lines.
+ */
+const CompleteProfilePage = lazy(() => import("./pages/CompleteProfilePage"));
+const AboutPage = lazy(() => import("./pages/AboutPage"));
+const ContactPage = lazy(() => import("./pages/ContactPage"));
+const NewsPage = lazy(() => import("./pages/NewsPage"));
+const NewslettersPage = lazy(() => import("./pages/NewslettersPage"));
+const EsteemedAlumniPage = lazy(() => import("./pages/EsteemedAlumniPage"));
+const GalleryPage = lazy(() => import("./pages/GalleryPage"));
+const AlumniMapPage = lazy(() => import("./pages/AlumniMapPage"));
+const TestimonialsPage = lazy(() => import("./pages/TestimonialsPage"));
+const SupportPage = lazy(() => import("./pages/SupportPage"));
+const DashboardLayout = lazy(() => import("./components/DashboardLayout"));
+const DashboardHome = lazy(() => import("./pages/DashboardHome"));
+const FeedPage = lazy(() => import("./pages/FeedPage"));
+const PostDetailPage = lazy(() => import("./pages/PostDetailPage"));
+const EventsPage = lazy(() => import("./pages/EventsPage"));
+const JobsPage = lazy(() => import("./pages/JobsPage"));
+const JobDetailPage = lazy(() => import("./pages/JobDetailPage"));
+const EventDetailPage = lazy(() => import("./pages/EventDetailPage"));
+const MyJobPostsPage = lazy(() => import("./pages/MyJobPostsPage"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const NotificationPage = lazy(() => import("./pages/NotificationPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const AchievementsPage = lazy(() => import("./pages/AchievementsPage"));
+const DonationsPage = lazy(() => import("./pages/DonationsPage"));
+const GeoMapPage = lazy(() => import("./pages/GeoMapPage"));
+const ChaptersPage = lazy(() => import("./pages/ChaptersPage"));
+const CollaborationPage = lazy(() => import("./pages/CollaborationPage"));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
+const AlumniDirectoryPage = lazy(() => import("./pages/AlumniDirectoryPage"));
+const AchievementDetailPage = lazy(() => import("./pages/AchievementDetailPage"));
+const PublicAchievementPage = lazy(() => import("./pages/PublicAchievementPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const OAuthCallbackPage = lazy(() => import("./pages/OAuthCallbackPage"));
+const AdminLayout = lazy(() => import("./components/AdminLayout"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const UserApprovalsPage = lazy(() => import("./pages/admin/UserApprovalsPage"));
+const EventApprovalsPage = lazy(() => import("./pages/admin/EventApprovalsPage"));
+const JobApprovalsPage = lazy(() => import("./pages/admin/JobApprovalsPage"));
+const AchievementsAdminPage = lazy(() => import("./pages/admin/AchievementsAdminPage"));
+const DonationsAdminPage = lazy(() => import("./pages/admin/DonationsAdminPage"));
+const AdminAnalyticsPage = lazy(() => import("./pages/admin/AdminAnalyticsPage"));
+const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
+const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
+const AdminGeoMapPage = lazy(() => import("./pages/admin/AdminGeoMapPage"));
+const ChaptersAdminPage = lazy(() => import("./pages/admin/ChaptersAdminPage"));
+const NewsroomPage = lazy(() => import("./pages/admin/NewsroomPage"));
+const GalleryAdminPage = lazy(() => import("./pages/admin/GalleryAdminPage"));
+const CollaborationAdminPage = lazy(() => import("./pages/admin/CollaborationAdminPage"));
+const StaticContentPage = lazy(() => import("./pages/StaticContentPage"));
+const AccountStatusPage = lazy(() => import("./pages/AccountStatusPage"));
+const SupportInboxPage = lazy(() => import("./pages/admin/SupportInboxPage"));
+const FeedModerationPage = lazy(() => import("./pages/admin/FeedModerationPage"));
+const AdminUserDetailPage = lazy(() => import("./pages/admin/AdminUserDetailPage"));
+
+/** Shown while a route's chunk is in flight. Deliberately quiet — a spinner
+ *  that appears for 80 ms reads as a flicker, so this is just held space. */
+const RouteFallback = () => (
+  <div className="min-h-screen bg-background" aria-busy="true" aria-live="polite" />
+);
 
 const queryClient = new QueryClient({
   // A definitive 4xx is not retried, so a detail page can say "not found"
@@ -81,6 +104,12 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
+            {/*
+              * One boundary around the whole table rather than per route: the
+              * layouts are split too, so a dashboard navigation can suspend on
+              * the layout as well as on the page inside it.
+              */}
+            <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<LandingPage />} />
               {/* One page, two entry points. AuthPage reads the path to decide
@@ -184,6 +213,7 @@ const App = () => (
 
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>
