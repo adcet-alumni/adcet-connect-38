@@ -1,9 +1,38 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+import { buildCsp } from "./src/lib/csp";
 
 // https://vitejs.dev/config/
+/**
+ * Inject the Content-Security-Policy into index.html at build time.
+ *
+ * The API and storage origins differ per deployment and are only known from
+ * the VITE_* env, so the policy has to be generated rather than committed —
+ * see `src/lib/csp.ts` for why each source is there.
+ *
+ * Development is exempt: Vite's HMR client uses inline script and a websocket
+ * to a random port, so a production-grade policy would only teach everyone to
+ * ignore console errors.
+ */
+const cspPlugin = (env: Record<string, string>): Plugin => ({
+  name: "adcet-csp",
+  apply: "build",
+  transformIndexHtml: {
+    order: "pre",
+    handler: (html) =>
+      html.replace(
+        "<head>",
+        `<head>\n    <meta http-equiv="Content-Security-Policy" content="${buildCsp({
+          apiBaseUrl: env.VITE_API_BASE_URL,
+          storageBaseUrl: env.VITE_STORAGE_PUBLIC_BASE_URL,
+          cloudinaryCloudName: env.VITE_CLOUDINARY_CLOUD_NAME,
+        })}" />`,
+      ),
+  },
+});
+
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
@@ -12,7 +41,7 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [react(), cspPlugin(loadEnv(mode, __dirname, "VITE_")), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

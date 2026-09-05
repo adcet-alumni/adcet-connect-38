@@ -18,7 +18,43 @@ export const buildApp = () => {
   const app = express();
 
   app.disable("x-powered-by");
-  app.use(helmet());
+  /*
+   * `helmet()` on its own leaves this API without HSTS in the shapes that
+   * matter and with a CSP tuned for HTML pages. Two things are set explicitly:
+   *
+   * - The API's own responses are JSON, plus the Swagger UI page, which needs
+   *   inline styles and its own scripts. A blanket default CSP breaks that
+   *   page; this one is narrow enough to be worth having and still lets
+   *   /api/docs render.
+   * - `crossOriginResourcePolicy` is relaxed to cross-origin because the SPA
+   *   is served from a different origin and reads files from /uploads under
+   *   the local storage driver.
+   *
+   * The policy protecting *users* is the one on the SPA — see src/lib/csp.ts.
+   * A CSP served by the API cannot govern a page the API does not serve.
+   */
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          // Swagger UI injects its own styles.
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", "data:"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          frameAncestors: ["'none'"],
+        },
+      },
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      // Only meaningful over HTTPS, and only worth committing to in production.
+      hsts: env.NODE_ENV === "production"
+        ? { maxAge: 31_536_000, includeSubDomains: true, preload: false }
+        : false,
+      referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    }),
+  );
   app.use(cors({ origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(","), credentials: true }));
   // Capture the raw request body so webhook handlers (e.g. Razorpay) can verify
   // HMAC signatures over the exact bytes received.
