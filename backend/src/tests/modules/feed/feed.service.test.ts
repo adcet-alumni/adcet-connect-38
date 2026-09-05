@@ -46,15 +46,104 @@ describe("modules/feed/service", () => {
       rawPost({ likes: [{ id: "l-1" }] }),
       rawPost({ id: "p-2", likes: [] }),
     ]);
-    prismaMock.post.count.mockResolvedValueOnce(2);
 
-    const res = await svc.list({ page: 1, pageSize: 10 } as any, ALUMNI);
+    const res = await svc.list({ limit: 10 } as any, ALUMNI);
 
     expect(res.items[0]).toMatchObject({ likeCount: 3, commentCount: 2, likedByMe: true });
     expect(res.items[1].likedByMe).toBe(false);
     // The like sub-query must be scoped to the caller, not every user.
     const args = prismaMock.post.findMany.mock.calls[0][0] as any;
     expect(args.include.likes.where).toEqual({ userId: "u-1" });
+  });
+
+  describe("cursor pagination", () => {
+    /*
+     * The feed is an infinite scroll, so it seeks past a row rather than
+     * counting rows to skip. That is not only cheaper than OFFSET — it is the
+     * only correct option while people are posting: an offset shifts by one
+     * every time a post is published, so a reader meets the same post again at
+     * the top of the next page.
+     */
+    it("never issues a COUNT — an infinite scroll has no total to show", async () => {
+      prismaMock.post.findMany.mockResolvedValueOnce([rawPost()]);
+
+      const res = await svc.list({ limit: 10 } as any, ALUMNI);
+
+      expect(prismaMock.post.count).not.toHaveBeenCalled();
+      expect(res).not.toHaveProperty("pagination");
+    });
+
+    it("reads one row beyond the page to learn whether another exists", async () => {
+      // Three rows back for a page of two: the third is the probe, not content.
+      prismaMock.post.findMany.mockResolvedValueOnce([
+        rawPost({ id: "p-1" }),
+        rawPost({ id: "p-2" }),
+        rawPost({ id: "p-3" }),
+      ]);
+
+      const res = await svc.list({ limit: 2 } as any, ALUMNI);
+
+      expect((prismaMock.post.findMany.mock.calls[0][0] as any).take).toBe(3);
+      expect(res.items.map((i) => i.id)).toEqual(["p-1", "p-2"]);
+      // The cursor is the last row actually served, never the probe.
+      expect(res.nextCursor).toBe("p-2");
+    });
+
+    it("reports the end of the feed as a null cursor", async () => {
+      prismaMock.post.findMany.mockResolvedValueOnce([rawPost({ id: "p-1" })]);
+
+      const res = await svc.list({ limit: 2 } as any, ALUMNI);
+
+      expect(res.items).toHaveLength(1);
+      expect(res.nextCursor).toBeNull();
+    });
+
+    it("starts at the top when no cursor is given, without looking one up", async () => {
+      prismaMock.post.findMany.mockResolvedValueOnce([]);
+
+      await svc.list({ limit: 10 } as any, ALUMNI);
+
+      expect(prismaMock.post.findUnique).not.toHaveBeenCalled();
+      const args = prismaMock.post.findMany.mock.calls[0][0] as any;
+      expect(args.where.OR).toBeUndefined();
+      expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+    });
+
+    it("seeks strictly past the cursor row, breaking ties on id", async () => {
+      const at = new Date("2026-03-01T10:00:00Z");
+      prismaMock.post.findUnique.mockResolvedValueOnce({ id: "p-5", createdAt: at });
+      prismaMock.post.findMany.mockResolvedValueOnce([]);
+
+      await svc.list({ limit: 10, cursor: "p-5" } as any, ALUMNI);
+
+      const where = (prismaMock.post.findMany.mock.calls[0][0] as any).where;
+      // Two posts can share a millisecond; without the id tiebreaker such a
+      // pair could straddle a page boundary and one of them be skipped.
+      expect(where.OR).toEqual([
+        { createdAt: { lt: at } },
+        { createdAt: at, id: { lt: "p-5" } },
+      ]);
+    });
+
+    it("keeps the filters alongside the cursor clause", async () => {
+      prismaMock.post.findUnique.mockResolvedValueOnce({ id: "p-5", createdAt: new Date() });
+      prismaMock.post.findMany.mockResolvedValueOnce([]);
+
+      await svc.list({ limit: 10, cursor: "p-5", authorId: "u-9", q: "trip" } as any, ALUMNI);
+
+      const where = (prismaMock.post.findMany.mock.calls[0][0] as any).where;
+      expect(where.authorId).toBe("u-9");
+      expect(where.content).toEqual({ contains: "trip", mode: "insensitive" });
+      expect(where.OR).toBeDefined();
+    });
+
+    it("404s on a cursor whose post is gone rather than silently restarting", async () => {
+      prismaMock.post.findUnique.mockResolvedValueOnce(null);
+
+      await expect(svc.list({ limit: 10, cursor: "p-gone" } as any, ALUMNI))
+        .rejects.toMatchObject({ status: 404 });
+      expect(prismaMock.post.findMany).not.toHaveBeenCalled();
+    });
   });
 
   /** Let the caller through the monthly quota check with `used` slots spent. */

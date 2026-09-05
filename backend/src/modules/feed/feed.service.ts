@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { Forbidden, NotFound, TooMany } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
+import type { FeedListQuery } from "./feed.validators.js";
 import type { AppRoleName } from "../../config/constants.js";
 import { getStorage } from "../../storage/index.js";
 import { logger } from "../../lib/logger.js";
@@ -58,21 +59,61 @@ const purgeMedia = async (keys: string[]) => {
   );
 };
 
-export const list = async (q: PaginationQuery & { authorId?: string; q?: string }, caller: Caller) => {
+/**
+ * One page of the feed, newest first, anchored to a cursor rather than an
+ * offset.
+ *
+ * Ordering by `(createdAt desc, id desc)` and seeking past the cursor row is
+ * what makes this stable while people are posting: `OFFSET` counts rows, so a
+ * post published mid-scroll shifts every later row down a place and the reader
+ * sees the same post twice. `id` is the tiebreaker because two posts can share
+ * a millisecond, and without it such a pair could straddle a page boundary and
+ * one of them be skipped. Both columns come from the `@@index([createdAt])`.
+ *
+ * `nextCursor` is null when the last page has been served, which is the only
+ * signal an infinite scroll needs — there is deliberately no `COUNT(*)`.
+ */
+export const list = async (q: FeedListQuery, caller: Caller) => {
   const where: Prisma.PostWhereInput = {
     ...(q.authorId && { authorId: q.authorId }),
     ...(q.q && { content: { contains: q.q, mode: "insensitive" } }),
   };
-  const [items, total] = await Promise.all([
-    prisma.post.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: postInclude(caller.sub),
-      ...paginate(q),
-    }),
-    prisma.post.count({ where }),
-  ]);
-  return { items: items.map(toDto), pagination: paginationMeta(total, q) };
+
+  const anchor = q.cursor
+    ? await prisma.post.findUnique({
+        where: { id: q.cursor },
+        select: { createdAt: true, id: true },
+      })
+    : null;
+
+  // A cursor pointing at a deleted post would otherwise silently restart the
+  // feed from the top, so say so instead of quietly repeating page one.
+  if (q.cursor && !anchor) throw NotFound("That point in the feed no longer exists");
+
+  const rows = await prisma.post.findMany({
+    where: {
+      ...where,
+      ...(anchor && {
+        OR: [
+          { createdAt: { lt: anchor.createdAt } },
+          { createdAt: anchor.createdAt, id: { lt: anchor.id } },
+        ],
+      }),
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    include: postInclude(caller.sub),
+    // One extra row, purely to learn whether another page exists without
+    // counting the whole table.
+    take: q.limit + 1,
+  });
+
+  const hasMore = rows.length > q.limit;
+  const items = hasMore ? rows.slice(0, q.limit) : rows;
+
+  return {
+    items: items.map(toDto),
+    nextCursor: hasMore ? items[items.length - 1].id : null,
+  };
 };
 
 export const getById = async (id: string, caller: Caller) => {

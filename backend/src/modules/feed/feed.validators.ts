@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { paginationSchema } from "../../lib/pagination.js";
-import { FEED_MEDIA } from "../../config/constants.js";
+import { FEED_MEDIA, PAGINATION } from "../../config/constants.js";
 
 const mediaItemSchema = z.object({
   key: z.string().min(1).max(500),
@@ -43,10 +43,25 @@ export const updatePostSchema = z.object({
   content: z.string().min(1).max(5000),
 });
 
-export const listQuerySchema = paginationSchema.extend({
+/**
+ * The feed is a cursor-paginated infinite scroll, not a numbered list.
+ *
+ * `?page=N` made Postgres walk and discard N × pageSize rows to reach the page,
+ * and it is *wrong* under concurrent inserts: a post published while someone is
+ * scrolling shifts everything down, so the reader sees the last row of page 1
+ * again at the top of page 2. A cursor is anchored to a row, so it cannot skip
+ * or repeat one. There is also no `COUNT(*)` any more — an infinite scroll
+ * never renders "of 47,213", and the count cost as much as the page did.
+ */
+export const listQuerySchema = z.object({
+  /** Id of the last post already seen. Absent means "from the top". */
+  cursor: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(PAGINATION.MAX_PAGE_SIZE).default(PAGINATION.DEFAULT_PAGE_SIZE),
   authorId: z.string().uuid().optional(),
   q: z.string().max(200).optional(),
 });
+
+export type FeedListQuery = z.infer<typeof listQuerySchema>;
 
 export const commentSchema = z.object({
   body: z.string().trim().min(1).max(2000),

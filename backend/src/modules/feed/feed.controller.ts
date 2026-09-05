@@ -1,13 +1,13 @@
 import type { Request, Response } from "express";
 import type { z } from "zod";
 import * as service from "./feed.service.js";
-import type { listQuerySchema, reportsQuerySchema } from "./feed.validators.js";
+import type { FeedListQuery, reportsQuerySchema } from "./feed.validators.js";
 import type { PaginationQuery } from "../../lib/pagination.js";
 
 const caller = (req: Request) => ({ sub: req.auth!.sub, roles: req.auth!.roles });
 
 export const list = async (req: Request, res: Response) =>
-  res.json(await service.list(req.query as unknown as z.infer<typeof listQuerySchema>, caller(req)));
+  res.json(await service.list(req.query as unknown as FeedListQuery, caller(req)));
 
 /** The caller's remaining post allowance — read by the composer on mount. */
 export const quota = async (req: Request, res: Response) =>
