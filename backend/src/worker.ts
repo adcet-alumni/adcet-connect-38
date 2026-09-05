@@ -18,6 +18,7 @@ import { JOB_LEASES, withJobLease, type JobName } from "./lib/jobLease.js";
 import { runEventReminders } from "./jobs/eventReminders.js";
 import { runGeoBackfill } from "./jobs/geoBackfill.js";
 import { runResumeCleanup } from "./jobs/resumeCleanup.js";
+import { runTokenCleanup } from "./jobs/tokenCleanup.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -66,6 +67,18 @@ const JOBS: ScheduledJob[] = [
     leaseMs: 30 * 60_000,
     runAtStartup: true,
     run: () => runResumeCleanup(env.RESUME_RETENTION_DAYS),
+  },
+  {
+    /*
+     * Three token tables that were only ever written to. Cheap and bounded —
+     * deleteMany on indexed predicates — so it runs alongside the rest rather
+     * than needing its own cadence.
+     */
+    name: JOB_LEASES.tokenCleanup,
+    everyMs: DAY_MS,
+    leaseMs: 15 * 60_000,
+    runAtStartup: true,
+    run: runTokenCleanup,
   },
 ];
 

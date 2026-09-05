@@ -16,6 +16,7 @@ export const JOB_LEASES = {
   eventReminders: "event-reminders",
   geoBackfill: "geo-backfill",
   resumeCleanup: "resume-cleanup",
+  tokenCleanup: "token-cleanup",
 } as const;
 
 export type JobName = (typeof JOB_LEASES)[keyof typeof JOB_LEASES];
