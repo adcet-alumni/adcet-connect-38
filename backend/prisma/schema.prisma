@@ -550,6 +550,12 @@ model JobApplication {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([jobId, userId])
+  /// "My applications" (`GET /jobs/me/applications`) filters on `userId`
+  /// alone. The unique above is led by `jobId`, so it cannot serve that —
+  /// a B-tree is only usable from its leading column inwards. Reading one
+  /// alumnus's applications was a sequential scan of every application on
+  /// the platform.
+  @@index([userId])
 }
 
 // =====================================================================
@@ -680,7 +686,15 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
+  /// The unread badge: `count({ where: { userId, readAt: null } })`, and the
+  /// "mark all read" update that shares its predicate.
   @@index([userId, readAt])
+  /// The list itself: `where: { userId }, orderBy: { createdAt: desc }`.
+  /// `[userId, readAt]` filters this correctly but leaves Postgres to sort the
+  /// match set in memory, so both indexes stay — they serve different halves
+  /// of the same page load, and dropping either puts one of them back on a
+  /// scan or a sort.
+  @@index([userId, createdAt])
 }
 
 model AuditLog {
@@ -694,6 +708,11 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([actorId])
+  /// Both readers of this table order by `createdAt desc` and nothing else —
+  /// the paginated audit page and the dashboard's "latest 8". This is the
+  /// fastest-growing table in the schema, and without this index every one of
+  /// those views sorted all of it.
+  @@index([createdAt])
 }
 
 // =====================================================================
