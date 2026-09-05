@@ -40,23 +40,51 @@ describe("geo.service — companies", () => {
 });
 
 describe("geo.service — cityCompanyBreakdown", () => {
-  it("aggregates by city → company → count", async () => {
-    prismaMock.profile.findMany.mockResolvedValueOnce([
-      { city: "Pune", currentCompany: "Acme" },
-      { city: "Pune", currentCompany: "Acme" },
-      { city: "Pune", currentCompany: "Globex" },
-      { city: "Mumbai", currentCompany: "Acme" },
-      { city: null, currentCompany: "X" }, // skipped
-      { city: "X", currentCompany: null }, // skipped
+  /*
+   * Postgres does the counting now — one `GROUP BY city, "currentCompany"`
+   * instead of reading every approved profile and tallying in Node — so these
+   * rows arrive pre-aggregated and what is left to test is the nesting and the
+   * ordering.
+   */
+  it("nests companies under their city and totals the headcount", async () => {
+    prismaMock.profile.groupBy.mockResolvedValueOnce([
+      { city: "Pune", currentCompany: "Acme", _count: { _all: 2 } },
+      { city: "Pune", currentCompany: "Globex", _count: { _all: 1 } },
+      { city: "Mumbai", currentCompany: "Acme", _count: { _all: 1 } },
+      // The `where` excludes these, but `by` still types them nullable.
+      { city: null, currentCompany: "X", _count: { _all: 9 } },
+      { city: "X", currentCompany: null, _count: { _all: 9 } },
     ]);
+
     const out = await svc.cityCompanyBreakdown();
-    const pune = out.find((c) => c.city === "Pune")!;
-    expect(pune.totalAlumni).toBe(3);
-    expect(pune.companies[0]).toEqual({ company: "Acme", count: 2 });
+
+    expect(out.map((c) => c.city)).toEqual(["Pune", "Mumbai"]); // busiest first
+    expect(out[0]).toEqual({
+      city: "Pune",
+      totalAlumni: 3,
+      companies: [
+        { company: "Acme", count: 2 },
+        { company: "Globex", count: 1 },
+      ],
+    });
+  });
+
+  it("breaks ties by name, so the panel does not reshuffle between requests", async () => {
+    // Neither this nor the previous implementation ordered its source rows, so
+    // equal-headcount companies used to appear in whatever order Postgres
+    // returned them — `sort` is stable, which preserved it rather than fixing it.
+    prismaMock.profile.groupBy.mockResolvedValueOnce([
+      { city: "Pune", currentCompany: "Zeta", _count: { _all: 1 } },
+      { city: "Pune", currentCompany: "Alpha", _count: { _all: 1 } },
+      { city: "Pune", currentCompany: "Mid", _count: { _all: 3 } },
+    ]);
+
+    const out = await svc.cityCompanyBreakdown();
+    expect(out[0].companies.map((c) => c.company)).toEqual(["Mid", "Alpha", "Zeta"]);
   });
 
   it("returns [] when no profiles match", async () => {
-    prismaMock.profile.findMany.mockResolvedValueOnce([]);
+    prismaMock.profile.groupBy.mockResolvedValueOnce([]);
     expect(await svc.cityCompanyBreakdown()).toEqual([]);
   });
 });

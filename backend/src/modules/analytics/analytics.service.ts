@@ -270,25 +270,70 @@ export const alumniFacets = async () => {
 /* -------------------------------------------------------------------------- */
 
 const NOT_ADMIN = { roles: { none: { role: "ADMIN" as const } } };
-const monthKey = (d: Date | string) => new Date(d).toISOString().slice(0, 7); // YYYY-MM
 
-/** Bucket a set of dates into a sorted monthly count series. */
-const trendByMonth = (dates: (Date | string)[]): { month: string; count: number }[] => {
-  const m = new Map<string, number>();
-  for (const d of dates) m.set(monthKey(d), (m.get(monthKey(d)) ?? 0) + 1);
-  return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([month, count]) => ({ month, count }));
+/*
+ * Everything below aggregates in Postgres rather than in Node.
+ *
+ * This endpoint used to `findMany` every user, event, job, donation and
+ * achievement with no `take` — the default page load, with no date filter,
+ * fetched the whole table — and then bucketed them into months in JavaScript.
+ * At 50k users and 200k donations that is hundreds of thousands of rows over
+ * the wire per dashboard open, to produce a few dozen numbers. `GROUP BY` does
+ * it for free and the result set is months × statuses: tens of rows.
+ *
+ * Two things the SQL has to keep faithful to the old JavaScript, both pinned
+ * by tests in `analytics.insights.test.ts` which run against a real database:
+ *
+ * 1. **Month keys are UTC.** The old code did
+ *    `new Date(d).toISOString().slice(0, 7)`. Prisma maps `DateTime` to
+ *    `timestamp(3)` *without* time zone and stores UTC instants, so
+ *    `date_trunc('month', col)` buckets on the same instant — but only as long
+ *    as nothing casts to `timestamptz` on the way, which would re-interpret it
+ *    in the server's zone and move rows near a month boundary.
+ * 2. **Donations bucket by `paidAt ?? createdAt` while being *filtered* by
+ *    `createdAt`.** A gift pledged in March and settled in April counts toward
+ *    April's revenue but belongs to a March-to-March date filter.
+ */
+
+/** One `GROUP BY month, status` row. Every trend query returns this shape. */
+interface MonthStatusRow {
+  month: string;
+  status: string;
+  count: number;
+}
+
+/** `WHERE`-clause fragments, composed per entity. `Prisma.sql` parameterises. */
+const createdBetween = (column: Prisma.Sql, from?: Date, to?: Date): Prisma.Sql =>
+  Prisma.sql`
+    ${from ? Prisma.sql`AND ${column} >= ${from}` : Prisma.empty}
+    ${to ? Prisma.sql`AND ${column} <= ${to}` : Prisma.empty}`;
+
+/** `YYYY-MM`, in UTC, matching what `toISOString().slice(0, 7)` produced. */
+const monthOf = (column: Prisma.Sql): Prisma.Sql =>
+  Prisma.sql`to_char(date_trunc('month', ${column}), 'YYYY-MM')`;
+
+/** Collapse `(month, status)` rows to a sorted monthly series. */
+const trendFrom = (rows: MonthStatusRow[]): { month: string; count: number }[] => {
+  const byMonth = new Map<string, number>();
+  for (const r of rows) byMonth.set(r.month, (byMonth.get(r.month) ?? 0) + r.count);
+  return [...byMonth.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([month, count]) => ({ month, count }));
 };
 
-const countByStatus = (arr: { status: string }[]) => {
-  const m = new Map<string, number>();
-  for (const x of arr) m.set(x.status, (m.get(x.status) ?? 0) + 1);
-  return [...m.entries()].map(([label, value]) => ({ label, value }));
+/** Collapse `(month, status)` rows to the status distribution the charts draw. */
+const statusFrom = (rows: { status: string; count: number }[]) => {
+  const byStatus = new Map<string, number>();
+  for (const r of rows) byStatus.set(r.status, (byStatus.get(r.status) ?? 0) + r.count);
+  return [...byStatus.entries()].map(([label, value]) => ({ label, value }));
 };
+
+const total = (rows: { count: number }[]) => rows.reduce((sum, r) => sum + r.count, 0);
+const totalWhere = (rows: MonthStatusRow[], status: string) =>
+  total(rows.filter((r) => r.status === status));
 
 export const adminInsights = async (f: { from?: Date; to?: Date; department?: string }) => {
-  const range = f.from || f.to ? { ...(f.from && { gte: f.from }), ...(f.to && { lte: f.to }) } : undefined;
-  const created = range ? { createdAt: range } : {};
-  const dept = f.department;
+  const { from, to, department: dept } = f;
   const alumniWhere: Prisma.ProfileWhereInput = {
     user: { status: "APPROVED", ...NOT_ADMIN },
     ...(dept && { department: dept }),
@@ -297,45 +342,95 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
   /*
    * A department narrows an event or a job through `departments` — the
    * `String[]` column that replaced the single nullable `department` in
-   * migration `20260803150000_multi_department_targeting`. `has` is the same
-   * filter `events.service.ts` and `jobs.service.ts` apply on their own read
-   * paths, so "aimed at X" means the same thing here as it does there, and
-   * postings open to everyone (an empty array) are excluded from a
-   * department-specific view rather than counted into all of them.
-   *
-   * These are annotated rather than spread inline on purpose: an unknown key
-   * inside a spread is not excess-property-checked, which is exactly how
-   * `{ department: dept }` survived `tsc` here and 500ed at runtime instead.
+   * migration `20260803150000_multi_department_targeting`. `= ANY(...)` is the
+   * SQL behind Prisma's `has`, the same filter the events and jobs read paths
+   * apply, so "aimed at X" means the same thing on the dashboard as it does in
+   * the listings, and postings open to everyone (an empty array) are excluded
+   * from a department-specific view rather than counted into all of them.
    */
   const eventWhere: Prisma.EventWhereInput = {
-    ...created,
+    ...(from || to ? { createdAt: { ...(from && { gte: from }), ...(to && { lte: to }) } } : {}),
     ...(dept && { departments: { has: dept } }),
   };
-  const jobWhere: Prisma.JobWhereInput = {
-    ...created,
-    ...(dept && { departments: { has: dept } }),
-  };
+  const deptInArray = (column: Prisma.Sql) =>
+    dept ? Prisma.sql`AND ${dept} = ANY(${column})` : Prisma.empty;
 
-  const [users, events, jobs, donations, achievements, totalAlumni, byDepartment, byYear, topCompanies, topCities] =
+  const [userRows, eventRows, jobRows, donationRows, achievementRows] = await Promise.all([
+    /*
+     * `NOT EXISTS` is Prisma's `roles: { none: { role: "ADMIN" } }`, and the
+     * `EXISTS` on Profile is `profile: { department }` — a scalar column on the
+     * profile, unlike the arrays on Event and Job above.
+     */
+    prisma.$queryRaw<MonthStatusRow[]>`
+      SELECT ${monthOf(Prisma.sql`u."createdAt"`)} AS month,
+             u.status::text AS status,
+             count(*)::int AS count
+      FROM "User" u
+      WHERE NOT EXISTS (
+              SELECT 1 FROM "UserRole" r WHERE r."userId" = u.id AND r.role = 'ADMIN')
+        ${createdBetween(Prisma.sql`u."createdAt"`, from, to)}
+        ${dept
+          ? Prisma.sql`AND EXISTS (
+              SELECT 1 FROM "Profile" p WHERE p."userId" = u.id AND p.department = ${dept})`
+          : Prisma.empty}
+      GROUP BY 1, 2`,
+
+    prisma.$queryRaw<MonthStatusRow[]>`
+      SELECT ${monthOf(Prisma.sql`e."createdAt"`)} AS month,
+             e.status::text AS status,
+             count(*)::int AS count
+      FROM "Event" e
+      WHERE TRUE
+        ${createdBetween(Prisma.sql`e."createdAt"`, from, to)}
+        ${deptInArray(Prisma.sql`e.departments`)}
+      GROUP BY 1, 2`,
+
+    // `isClosed` rides along so "open jobs" is a filter over these rows rather
+    // than a sixth query.
+    prisma.$queryRaw<(MonthStatusRow & { isClosed: boolean })[]>`
+      SELECT ${monthOf(Prisma.sql`j."createdAt"`)} AS month,
+             j.status::text AS status,
+             j."isClosed" AS "isClosed",
+             count(*)::int AS count
+      FROM "Job" j
+      WHERE TRUE
+        ${createdBetween(Prisma.sql`j."createdAt"`, from, to)}
+        ${deptInArray(Prisma.sql`j.departments`)}
+      GROUP BY 1, 2, 3`,
+
+    // Bucketed by settlement date, filtered by creation date — see the note at
+    // the top. `sum` over `int` returns `bigint`, which does not survive
+    // `JSON.stringify`, hence the cast.
+    prisma.$queryRaw<(MonthStatusRow & { amount: number })[]>`
+      SELECT ${monthOf(Prisma.sql`coalesce(d."paidAt", d."createdAt")`)} AS month,
+             d.status::text AS status,
+             count(*)::int AS count,
+             coalesce(sum(d.amount), 0)::int AS amount
+      FROM "Donation" d
+      WHERE TRUE
+        ${createdBetween(Prisma.sql`d."createdAt"`, from, to)}
+      GROUP BY 1, 2`,
+
+    prisma.$queryRaw<MonthStatusRow[]>`
+      SELECT ${monthOf(Prisma.sql`a."createdAt"`)} AS month,
+             a.status::text AS status,
+             count(*)::int AS count
+      FROM "Achievement" a
+      WHERE TRUE
+        ${createdBetween(Prisma.sql`a."createdAt"`, from, to)}
+      GROUP BY 1, 2`,
+  ]);
+
+  const [totalAlumni, totalRsvps, byDepartment, byYear, topCompanies, topCities] =
     await Promise.all([
-      prisma.user.findMany({
-        where: { ...created, ...NOT_ADMIN, ...(dept && { profile: { department: dept } }) },
-        select: { createdAt: true, status: true },
-      }),
-      prisma.event.findMany({
-        where: eventWhere,
-        select: { createdAt: true, status: true, _count: { select: { rsvps: true } } },
-      }),
-      prisma.job.findMany({
-        where: jobWhere,
-        select: { createdAt: true, status: true, isClosed: true },
-      }),
-      prisma.donation.findMany({
-        where: { ...created },
-        select: { createdAt: true, paidAt: true, amount: true, status: true },
-      }),
-      prisma.achievement.findMany({ where: { ...created }, select: { createdAt: true, status: true } }),
       prisma.profile.count({ where: alumniWhere }),
+      /*
+       * One `COUNT(*)` over the RSVPs of the matching events. This used to be a
+       * `_count: { select: { rsvps: true } }` on every event row — a correlated
+       * subquery per event — summed in JavaScript, purely to produce this
+       * single number.
+       */
+      prisma.eventRsvp.count({ where: { event: eventWhere } }),
       prisma.profile.groupBy({
         by: ["department"],
         where: { user: { status: "APPROVED", ...NOT_ADMIN }, department: { not: null } },
@@ -363,35 +458,34 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
       }),
     ]);
 
-  const receivedDonations = donations.filter((d) => d.status === "RECEIVED");
-  const donationTrendMap = new Map<string, { count: number; amount: number }>();
-  for (const d of receivedDonations) {
-    const key = monthKey(d.paidAt ?? d.createdAt);
-    const cur = donationTrendMap.get(key) ?? { count: 0, amount: 0 };
-    cur.count += 1;
+  const received = donationRows.filter((d) => d.status === "RECEIVED");
+  const donationTrend = new Map<string, { count: number; amount: number }>();
+  for (const d of received) {
+    const cur = donationTrend.get(d.month) ?? { count: 0, amount: 0 };
+    cur.count += d.count;
     cur.amount += d.amount;
-    donationTrendMap.set(key, cur);
+    donationTrend.set(d.month, cur);
   }
 
   return {
     kpis: {
       totalAlumni,
-      newRegistrations: users.length,
-      newUsersApproved: users.filter((u) => u.status === "APPROVED").length,
-      events: events.length,
-      totalRsvps: events.reduce((s, e) => s + e._count.rsvps, 0),
-      jobs: jobs.length,
-      openJobs: jobs.filter((j) => !j.isClosed).length,
-      achievements: achievements.length,
-      donationsReceived: receivedDonations.length,
-      donationAmount: receivedDonations.reduce((s, d) => s + d.amount, 0),
+      newRegistrations: total(userRows),
+      newUsersApproved: totalWhere(userRows, "APPROVED"),
+      events: total(eventRows),
+      totalRsvps,
+      jobs: total(jobRows),
+      openJobs: total(jobRows.filter((j) => !j.isClosed)),
+      achievements: total(achievementRows),
+      donationsReceived: total(received),
+      donationAmount: received.reduce((sum, d) => sum + d.amount, 0),
     },
     trends: {
-      registrations: trendByMonth(users.map((u) => u.createdAt)),
-      events: trendByMonth(events.map((e) => e.createdAt)),
-      jobs: trendByMonth(jobs.map((j) => j.createdAt)),
-      achievements: trendByMonth(achievements.map((a) => a.createdAt)),
-      donations: [...donationTrendMap.entries()]
+      registrations: trendFrom(userRows),
+      events: trendFrom(eventRows),
+      jobs: trendFrom(jobRows),
+      achievements: trendFrom(achievementRows),
+      donations: [...donationTrend.entries()]
         .sort((a, b) => (a[0] < b[0] ? -1 : 1))
         .map(([month, v]) => ({ month, count: v.count, amount: v.amount })),
     },
@@ -400,9 +494,9 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
         .map((d) => ({ label: d.department ?? "—", value: d._count._all }))
         .sort((a, b) => b.value - a.value),
       byGraduationYear: byYear.map((y) => ({ label: String(y.graduationYear), value: y._count._all })),
-      donationStatus: countByStatus(donations),
-      jobStatus: countByStatus(jobs),
-      eventStatus: countByStatus(events),
+      donationStatus: statusFrom(donationRows),
+      jobStatus: statusFrom(jobRows),
+      eventStatus: statusFrom(eventRows),
       topCompanies: topCompanies.map((c) => ({ label: c.currentCompany ?? "—", value: c._count._all })),
       topCities: topCities.map((c) => ({ label: c.city ?? "—", value: c._count._all })),
     },

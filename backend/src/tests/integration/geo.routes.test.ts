@@ -51,10 +51,10 @@ describe("/geo", () => {
   });
 
   it("200 breakdown nests companies under cities", async () => {
-    prisma.profile.findMany.mockResolvedValueOnce([
-      { city: "Pune", currentCompany: "Acme" } as any,
-      { city: "Pune", currentCompany: "Acme" } as any,
-      { city: "Pune", currentCompany: "Beta" } as any,
+    // Grouped in Postgres now, so the rows arrive pre-counted.
+    prisma.profile.groupBy.mockResolvedValueOnce([
+      { city: "Pune", currentCompany: "Acme", _count: { _all: 2 } } as any,
+      { city: "Pune", currentCompany: "Beta", _count: { _all: 1 } } as any,
     ]);
     const res = await request(app)
       .get("/api/v1/geo/breakdown")

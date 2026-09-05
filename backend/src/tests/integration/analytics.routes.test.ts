@@ -86,60 +86,68 @@ describe("/analytics", () => {
  * `Event` and `Job` carry `departments: String[]`, not the single nullable
  * `department` column that migration `20260803150000_multi_department_targeting`
  * removed. `adminInsights` kept filtering on the old name, so picking any
- * department in the dashboard's dropdown threw `PrismaClientValidationError`
- * and blanked the whole payload — KPIs, trends and distributions, not just the
- * two series involved.
+ * department in the dashboard's dropdown blanked the whole payload — KPIs,
+ * trends and distributions, not just the two series involved.
  *
- * These tests read the `where` the service asked Prisma for, the way
- * `person-select.test.ts` reads the `select`. That is deliberate: the deep mock
- * accepts any arguments, so a test that only asserts a 200 would have passed
- * against the broken code. The argument shape is where the bug lived, so the
- * argument shape is what gets pinned.
+ * The department semantics themselves are now asserted in
+ * `tests/modules/analytics/insights.test.ts`, against a real database: those
+ * filters moved into `$queryRaw` when the trends were pushed down to SQL, and
+ * a mock cannot tell a working `= ANY(departments)` from a broken one — it
+ * would confirm we sent the SQL we wrote. Postgres rejecting an unknown column
+ * is what catches the original bug now, and only a real connection sees that.
+ *
+ * What stays here is the route's own contract: the filter is accepted, admin
+ * only, and answers 200.
  */
-describe("/analytics/admin/insights department filter", () => {
+describe("/analytics/admin/insights", () => {
   const DEPT = "Computer Science and Engineering";
 
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.user.findUnique.mockResolvedValue({ id: "admin-1", status: "APPROVED" } as any);
-    for (const model of ["user", "event", "job", "donation", "achievement"] as const) {
-      prisma[model].findMany.mockResolvedValue([] as any);
-    }
-    prisma.profile.count.mockResolvedValue(0);
+    prisma.$queryRaw.mockResolvedValue([] as any);
+    prisma.profile.count.mockResolvedValue(0 as any);
+    prisma.eventRsvp.count.mockResolvedValue(0 as any);
     prisma.profile.groupBy.mockResolvedValue([] as any);
   });
 
-  const insights = (query = "") =>
+  /**
+   * Every value bound into the raw queries. The interpolated arguments are
+   * `Prisma.Sql` fragments — composed clauses, each carrying its own bound
+   * values — so a department arrives nested one level down, which is itself
+   * the point: it is a parameter, never spliced into the SQL text.
+   */
+  const boundValues = () =>
+    prisma.$queryRaw.mock.calls
+      .flat()
+      .flatMap((arg: any) => (arg && Array.isArray(arg.values) ? arg.values : []));
+
+  const insights = (query = "", token = adminToken) =>
     request(app)
       .get(`/api/v1/analytics/admin/insights${query}`)
-      .set("Authorization", bearer(adminToken));
+      .set("Authorization", bearer(token));
 
-  it("narrows events and jobs through the departments array", async () => {
+  it("403s a non-admin", async () => {
+    const res = await insights("", userToken);
+    expect(res.status).toBe(403);
+  });
+
+  it("200s with a department filter, and passes it to the aggregation", async () => {
     const res = await insights(`?department=${encodeURIComponent(DEPT)}`);
     expect(res.status).toBe(200);
-
-    for (const model of [prisma.event, prisma.job]) {
-      const where = (model.findMany.mock.calls[0][0] as any).where;
-      expect(where.departments).toEqual({ has: DEPT });
-      // The column this used to name does not exist on either model.
-      expect(where).not.toHaveProperty("department");
-    }
+    expect(boundValues()).toContain(DEPT);
   });
 
-  it("narrows alumni through the profile's own department column", async () => {
-    await insights(`?department=${encodeURIComponent(DEPT)}`);
-    const where = (prisma.user.findMany.mock.calls[0][0] as any).where;
-    // `User` reaches a department through its profile — a scalar, not a list.
-    expect(where.profile).toEqual({ department: DEPT });
-  });
-
-  it("applies no department clause at all when none is asked for", async () => {
+  it("200s with no filter, and binds no department", async () => {
     const res = await insights();
     expect(res.status).toBe(200);
-    for (const model of [prisma.event, prisma.job]) {
-      const where = (model.findMany.mock.calls[0][0] as any).where;
-      expect(where).not.toHaveProperty("departments");
-      expect(where).not.toHaveProperty("department");
-    }
+    expect(boundValues()).not.toContain(DEPT);
+  });
+
+  it("returns the full payload shape even when everything is empty", async () => {
+    const res = await insights();
+    expect(Object.keys(res.body)).toEqual(["kpis", "trends", "distributions"]);
+    expect(res.body.trends.registrations).toEqual([]);
+    expect(res.body.kpis.newRegistrations).toBe(0);
   });
 });
