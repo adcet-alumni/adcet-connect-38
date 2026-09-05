@@ -83,12 +83,3 @@ export const runGeoBackfill = async ({
   logger.info(result, "geo backfill complete");
   return result;
 };
-
-/** Wire a daily sweep. Returns a stop handle for graceful shutdown / tests. */
-export const startGeoBackfillCron = (intervalMs = 24 * 60 * 60 * 1000) => {
-  const handle = setInterval(() => {
-    runGeoBackfill().catch((err: unknown) => logger.error({ err }, "geo backfill sweep crashed"));
-  }, intervalMs);
-  handle.unref?.();
-  return () => clearInterval(handle);
-};

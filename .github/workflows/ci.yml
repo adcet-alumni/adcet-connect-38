@@ -10,6 +10,27 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # The job-lease tests assert that two concurrent workers cannot both claim
+    # a job. That guarantee lives in one INSERT … ON CONFLICT DO UPDATE … WHERE
+    # statement, so it can only be tested against a real Postgres — mocking it
+    # would assert that we sent the SQL we wrote, not that it excludes.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: adcet
+          POSTGRES_PASSWORD: adcet
+          POSTGRES_DB: adcet_alumni_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U adcet -d adcet_alumni_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://adcet:adcet@localhost:5432/adcet_alumni_test?schema=public
+
     steps:
     - uses: actions/checkout@v4
 
@@ -53,6 +74,11 @@ jobs:
 
     - name: Run frontend tests
       run: npm run test
+
+    - name: Apply migrations to the test database
+      run: |
+        cd backend
+        npx prisma migrate deploy
 
     - name: Run backend tests
       run: |

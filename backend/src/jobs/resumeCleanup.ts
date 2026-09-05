@@ -43,14 +43,3 @@ export const runResumeCleanup = async (retentionDays: number): Promise<ResumeCle
   logger.info({ scanned: rows.length, deleted, failed }, "resume cleanup complete");
   return { scanned: rows.length, deleted, failed };
 };
-
-/** Wire a daily interval. Returns a stop handle for graceful shutdown / tests. */
-export const startResumeCleanupCron = (retentionDays: number, intervalMs = 24 * 60 * 60 * 1000) => {
-  const handle = setInterval(() => {
-    runResumeCleanup(retentionDays).catch((err) =>
-      logger.error({ err }, "resume cleanup sweep crashed"),
-    );
-  }, intervalMs);
-  handle.unref?.();
-  return () => clearInterval(handle);
-};

@@ -5,8 +5,6 @@ import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { prisma } from "./lib/prisma.js";
-import { startEventReminderCron } from "./jobs/eventReminders.js";
-import { startGeoBackfillCron } from "./jobs/geoBackfill.js";
 
 const app = buildApp();
 
@@ -18,15 +16,11 @@ const server = app.listen(env.PORT, () => {
   logger.info(`📚 Swagger UI: http://localhost:${env.PORT}/api/docs`);
 });
 
-// Start background jobs
-const stopEventReminders = startEventReminderCron();
-// Places alumni whose city the offline gazetteer didn't recognise.
-const stopGeoBackfill = startGeoBackfillCron();
-
+// No background jobs here. Every replica of this process would run every tick,
+// so three replicas meant three copies of each event reminder and three times
+// the request rate at Nominatim. They live in `worker.ts` — run one of it.
 const shutdown = async (signal: string) => {
   logger.info({ signal }, "Shutting down...");
-  stopEventReminders();
-  stopGeoBackfill();
   server.close(async () => {
     await prisma.$disconnect().catch(() => undefined);
     process.exit(0);

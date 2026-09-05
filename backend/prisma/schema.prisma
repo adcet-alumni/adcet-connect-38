@@ -273,6 +273,41 @@ model Profile {
   @@index([locationId])
 }
 
+/// One row per background job, holding a **time-limited lease** on the right to
+/// run it.
+///
+/// Background jobs used to start inside the web process, so every API replica
+/// ran every tick: three replicas meant every alumnus got three copies of each
+/// event reminder, and Nominatim got three times the request rate — enough to
+/// breach its one-request-per-second policy and have the deployment's IP
+/// blocked. Jobs now live in `worker.ts`, and this table is what makes running
+/// two workers (a rolling deploy, an accidental scale-up) safe rather than
+/// merely unlikely.
+///
+/// A lease, not a lock, for two reasons Postgres forces on us:
+///
+/// 1. `pg_try_advisory_lock` is held by a **connection**, and Prisma hands out
+///    pooled ones — the unlock can easily land on a different connection than
+///    the lock, leaking it until the pool recycles. The transaction-scoped
+///    variant releases at commit, which would mean holding a transaction open
+///    for the whole of a mail run.
+/// 2. A worker that is SIGKILLed mid-run cannot release anything. An expiry is
+///    what lets the next tick take over instead of the job wedging forever.
+///
+/// The claim is a single `INSERT … ON CONFLICT DO UPDATE … WHERE` statement, so
+/// it is atomic without a transaction: exactly one caller sees a row affected.
+model JobLease {
+  /// Stable job identifier, e.g. `event-reminders`. See `JOB_LEASES`.
+  name        String    @id
+  /// When the current holder's claim expires. NULL means nobody holds it.
+  lockedUntil DateTime?
+  /// Which process holds it — for debugging a stuck lease, never for logic.
+  lockedBy    String?
+  /// When the job last finished, successfully or not.
+  lastRunAt   DateTime?
+  updatedAt   DateTime  @updatedAt
+}
+
 /// Where a city is, resolved once and reused by every profile in it.
 ///
 /// Two things this model deliberately is **not**:

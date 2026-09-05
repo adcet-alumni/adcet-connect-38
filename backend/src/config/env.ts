@@ -95,6 +95,16 @@ const schema = z.object({
   CLOUDINARY_PRIVATE_SCOPES: z.string().default("resume,receipt"),
   CLOUDINARY_PRESIGN_TTL: z.coerce.number().default(900),
 
+  /**
+   * How long an uploaded résumé is kept before the retention job deletes the
+   * stored object and stamps `JobApplication.resumeDeletedAt`.
+   *
+   * An env var rather than an admin setting on purpose: this is a data
+   * retention commitment, not a day-to-day knob, and it should change through
+   * a deploy that someone reviews.
+   */
+  RESUME_RETENTION_DAYS: z.coerce.number().int().min(1).default(180),
+
   LOG_LEVEL: z.string().default("info"),
 
   // === OAuth / SSO (optional — endpoints return 501 if a provider is unconfigured) ===
