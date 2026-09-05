@@ -326,6 +326,24 @@ export const verifyPayment = async (
 };
 
 /**
+ * The slice of a Razorpay webhook body this handler acts on.
+ *
+ * Every field is optional: the signature has already been verified against the
+ * raw bytes above, so this describes *shape*, not trust, and Razorpay sends
+ * many event types whose payloads carry none of these. The reader below checks
+ * `orderId` and `paymentId` are present before touching a donation, which is
+ * what makes the optionality safe rather than merely permissive.
+ */
+interface RazorpayWebhookEvent {
+  event?: string;
+  payload?: {
+    payment?: {
+      entity?: { id?: string; order_id?: string; method?: string | null };
+    };
+  };
+}
+
+/**
  * Step 2 (webhook): the source of truth if the browser never returns. Verifies
  * the webhook signature, then completes the matching donation. Returns quickly
  * and never throws on unknown events so Razorpay always gets a 2xx.
@@ -334,17 +352,17 @@ export const handleWebhook = async (rawBody: Buffer, signature: string | undefin
   if (!signature || !razorpay.verifyWebhookSignature(rawBody, signature)) {
     throw BadRequest("Invalid webhook signature");
   }
-  let event: any;
+  let event: RazorpayWebhookEvent;
   try {
-    event = JSON.parse(rawBody.toString("utf8"));
+    event = JSON.parse(rawBody.toString("utf8")) as RazorpayWebhookEvent;
   } catch {
     throw BadRequest("Invalid webhook payload");
   }
 
   if (event?.event === "payment.captured" || event?.event === "order.paid") {
     const payment = event?.payload?.payment?.entity;
-    const orderId = payment?.order_id as string | undefined;
-    const paymentId = payment?.id as string | undefined;
+    const orderId = payment?.order_id;
+    const paymentId = payment?.id;
     if (orderId && paymentId) {
       const donation = await prisma.donation.findUnique({ where: { razorpayOrderId: orderId } });
       if (donation) {

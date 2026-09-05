@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { createPrismaMock } from "../../helpers/prismaMock.js";
 
 const prismaMock = createPrismaMock();

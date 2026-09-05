@@ -20,7 +20,10 @@ export default function PublicHeader() {
         <Link to="/" className="flex items-center gap-2.5 min-w-0 group">
           <img src="/logo.jpeg" alt="ADCET" className="w-9 h-9 rounded-lg object-cover ring-1 ring-border shrink-0" />
           <span className="flex flex-col leading-tight min-w-0">
-            <span className="font-semibold text-[13px] sm:text-sm truncate group-hover:text-primary transition-colors">ADCET Alumni Portal</span>
+            <span className="font-semibold text-[12px] sm:text-sm whitespace-nowrap group-hover:text-primary transition-colors">
+              <span className="sm:hidden">ADCET Alumni</span>
+              <span className="hidden sm:inline">ADCET Alumni Portal</span>
+            </span>
             <span className="hidden sm:block text-[11px] text-muted-foreground">Ashta, Sangli</span>
           </span>
         </Link>

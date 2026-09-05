@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { uploadFile } from "@/lib/upload";
 import { toast } from "@/hooks/use-toast";
 import RichTextEditor from "@/components/RichTextEditor";
@@ -94,9 +95,9 @@ const BulkEmailDialog = ({ open, onOpenChange, filters, recipientCount }: BulkEm
       reset();
       onOpenChange(false);
     },
-    onError: (e: any) => {
+    onError: (e: unknown) => {
       setConfirming(false);
-      toast({ title: "Send failed", description: e?.message, variant: "destructive" });
+      toast({ title: "Send failed", description: errorMessage(e), variant: "destructive" });
     },
   });
 
@@ -115,8 +116,8 @@ const BulkEmailDialog = ({ open, onOpenChange, filters, recipientCount }: BulkEm
     try {
       const a = await uploadAttachment(file);
       setAttachments((prev) => [...prev, a]);
-    } catch (e: any) {
-      toast({ title: "Upload failed", description: e?.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Upload failed", description: errorMessage(e), variant: "destructive" });
     } finally {
       setUploading(false);
     }

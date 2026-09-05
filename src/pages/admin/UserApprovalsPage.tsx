@@ -100,6 +100,7 @@ const UserApprovalsPage = () => {
       toast({ title: `User ${v.status.toLowerCase()}` });
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       qc.invalidateQueries({ queryKey: ["analytics", "admin-overview"] });
+      void qc.refetchQueries({ queryKey: ["analytics", "admin-overview"] });
       setSelectedIds((s) => { const n = new Set(s); n.delete(v.id); return n; });
     },
     onError: (e: Error) => toast({ title: "Action failed", description: e.message, variant: "destructive" }),
@@ -120,6 +121,7 @@ const UserApprovalsPage = () => {
       setBulkRejectOpen(false);
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       qc.invalidateQueries({ queryKey: ["analytics", "admin-overview"] });
+      void qc.refetchQueries({ queryKey: ["analytics", "admin-overview"] });
     },
     onError: (e: Error) => toast({ title: "Bulk action failed", description: e.message, variant: "destructive" }),
   });
@@ -182,7 +184,7 @@ const UserApprovalsPage = () => {
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
-        <Select value={filter} onValueChange={(v) => { setFilter(v as any); setPage(1); setSelectedIds(new Set()); }}>
+        <Select value={filter} onValueChange={(v) => { setFilter(v as "all" | ApprovalStatus); setPage(1); setSelectedIds(new Set()); }}>
           <SelectTrigger className="w-full sm:w-[180px]">
             <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
             <SelectValue placeholder="Status" />

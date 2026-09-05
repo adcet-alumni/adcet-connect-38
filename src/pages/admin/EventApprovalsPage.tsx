@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { uploadFile } from "@/lib/upload";
 import DepartmentMultiSelect from "@/components/DepartmentMultiSelect";
 import { fetchChapters } from "@/lib/chapters";
@@ -132,7 +133,7 @@ const EventApprovalsPage = () => {
       setFormOpen(false);
       setAttachFile(null);
     },
-    onError: (e: any) => toast({ title: "Save failed", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Save failed", description: errorMessage(e), variant: "destructive" }),
   });
 
   const del = useMutation({
@@ -143,7 +144,7 @@ const EventApprovalsPage = () => {
       qc.invalidateQueries({ queryKey: ["events"] });
       setDeleteTarget(null);
     },
-    onError: (e: any) => toast({ title: "Delete failed", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Delete failed", description: errorMessage(e), variant: "destructive" }),
   });
 
   return (

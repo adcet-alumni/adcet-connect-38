@@ -1,6 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
-import { BadRequest, Conflict, NotFound } from "../../lib/errors.js";
+import { BadRequest, Conflict, NotFound, errorMessage } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
 import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
@@ -103,8 +103,8 @@ export const bulkSetUserStatus = async (
     try {
       const result = await setUserStatus(actorId, userId, status, reason);
       results.push(result);
-    } catch (e: any) {
-      errors.push({ id: userId, error: e?.message ?? "Unknown error" });
+    } catch (e: unknown) {
+      errors.push({ id: userId, error: errorMessage(e) });
     }
   }
 
@@ -268,8 +268,8 @@ export const importApprovalDecisions = async (
         await setUserStatus(actorId, user.id, "REJECTED", reason ?? "Not verified by the department");
         rejected += 1;
       }
-    } catch (e: any) {
-      skipped.push({ identifier, reason: e?.message ?? "Update failed" });
+    } catch (e: unknown) {
+      skipped.push({ identifier, reason: errorMessage(e, "Update failed") });
     }
   }
 

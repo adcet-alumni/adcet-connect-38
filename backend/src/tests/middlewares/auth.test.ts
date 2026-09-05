@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it } from "@jest/globals";
 import { signAccessToken } from "../../lib/jwt.js";
 import { optionalAuth, requireAuth } from "../../middlewares/auth.js";
 import { ApiError } from "../../lib/errors.js";

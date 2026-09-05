@@ -11,6 +11,7 @@ import AchievementCardMedia from "@/components/AchievementCardMedia";
 import AchievementFormDialog from "@/components/AchievementFormDialog";
 import { achieverInitials, achieverLinkedin, achieverOf } from "@/lib/achievements";
 import { safeExternalUrl } from "@/lib/urls";
+import { storageUrl } from "@/lib/storage";
 
 interface Achievement {
   id: string;

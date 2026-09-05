@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { LoadingGrid } from "@/components/LoadingGrid";
 import { EmptyState } from "@/components/EmptyState";
@@ -90,7 +91,7 @@ const ManageMembersDialog = ({
       });
       refresh();
     },
-    onError: (e: any) => toast({ title: "Could not invite", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Could not invite", description: errorMessage(e), variant: "destructive" }),
   });
 
   const cancelInvite = useMutation({
@@ -99,7 +100,7 @@ const ManageMembersDialog = ({
       toast({ title: "Invitation withdrawn" });
       refresh();
     },
-    onError: (e: any) => toast({ title: "Could not withdraw", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Could not withdraw", description: errorMessage(e), variant: "destructive" }),
   });
 
   const removeMember = useMutation({
@@ -109,9 +110,9 @@ const ManageMembersDialog = ({
       setRemoveTarget(null);
       refresh();
     },
-    onError: (e: any) => {
+    onError: (e: unknown) => {
       setRemoveTarget(null);
-      toast({ title: "Could not remove", description: e?.message, variant: "destructive" });
+      toast({ title: "Could not remove", description: errorMessage(e), variant: "destructive" });
     },
   });
 
@@ -334,7 +335,7 @@ const ChaptersAdminPage = () => {
       setFormOpen(false);
       invalidate();
     },
-    onError: (e: any) => toast({ title: "Save failed", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Save failed", description: errorMessage(e), variant: "destructive" }),
   });
 
   const setActive = useMutation({
@@ -350,9 +351,9 @@ const ChaptersAdminPage = () => {
       setArchiveTarget(null);
       invalidate();
     },
-    onError: (e: any) => {
+    onError: (e: unknown) => {
       setArchiveTarget(null);
-      toast({ title: "Update failed", description: e?.message, variant: "destructive" });
+      toast({ title: "Update failed", description: errorMessage(e), variant: "destructive" });
     },
   });
 
@@ -364,8 +365,8 @@ const ChaptersAdminPage = () => {
       invalidate();
     },
     // A 409 here is the "not empty" guard — surface its explanation verbatim.
-    onError: (e: any) =>
-      toast({ title: "Could not delete", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) =>
+      toast({ title: "Could not delete", description: errorMessage(e), variant: "destructive" }),
   });
 
   const openCreate = () => { setEditing(null); setForm(emptyForm()); setFormOpen(true); };

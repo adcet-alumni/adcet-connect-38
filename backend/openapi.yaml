@@ -650,7 +650,7 @@ components:
 
     RegisterInput:
       type: object
-      required: [email, password, otp, firstName, lastName, linkedinUrl]
+      required: [email, password, otp, firstName, lastName, department, degree, graduationYear, birthDay, birthMonth, phone, city, currentCompany, currentRole, linkedinUrl]
       properties:
         email: { type: string, format: email }
         password: { type: string, minLength: 8 }
@@ -659,8 +659,13 @@ components:
         lastName: { type: string }
         department: { type: string }
         degree: { $ref: '#/components/schemas/DegreeType' }
-        admissionYear: { type: integer }
         graduationYear: { type: integer, description: Must not be in the future }
+        birthDay: { type: integer, minimum: 1, maximum: 31 }
+        birthMonth: { type: integer, minimum: 1, maximum: 12 }
+        phone: { type: string }
+        city: { type: string }
+        currentCompany: { type: string }
+        currentRole: { type: string }
         linkedinUrl: { type: string }
         githubUrl: { type: string }
         twitterUrl: { type: string }

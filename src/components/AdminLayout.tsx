@@ -3,10 +3,9 @@ import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, UserCheck, Calendar, Briefcase, Trophy, Heart, BarChart3,
-  AlertTriangle, Settings, Bell, Menu, ChevronLeft, LogOut, X,
+  AlertTriangle, Settings, Menu, ChevronLeft, LogOut, X,
   Search, User, Globe, FileText, MessageSquare, Newspaper, Flag, Building2, Images, Handshake
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import {

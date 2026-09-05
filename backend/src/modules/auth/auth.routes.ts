@@ -2,7 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../lib/asyncHandler.js";
 import { validate } from "../../middlewares/validate.js";
 import { requireAuth } from "../../middlewares/auth.js";
-import { authLimiter } from "../../middlewares/rateLimit.js";
+import { authLimiter, loginLimiter } from "../../middlewares/rateLimit.js";
 import * as ctrl from "./auth.controller.js";
 import {
   changePasswordSchema,
@@ -19,7 +19,7 @@ export const authRouter = Router();
 
 authRouter.post("/register/send-otp", authLimiter, validate(sendRegistrationOtpSchema), asyncHandler(ctrl.sendRegistrationOtp));
 authRouter.post("/register", authLimiter, validate(registerSchema), asyncHandler(ctrl.register));
-authRouter.post("/login", authLimiter, validate(loginSchema), asyncHandler(ctrl.login));
+authRouter.post("/login", loginLimiter, validate(loginSchema), asyncHandler(ctrl.login));
 authRouter.post("/refresh", validate(refreshSchema), asyncHandler(ctrl.refresh));
 authRouter.post("/logout", validate(refreshSchema), asyncHandler(ctrl.logout));
 authRouter.get("/me", requireAuth, asyncHandler(ctrl.me));

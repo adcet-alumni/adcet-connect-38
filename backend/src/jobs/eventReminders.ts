@@ -4,6 +4,7 @@
  * 2) Sends follow-up emails to alumni who haven't responded yet for events happening tomorrow
  * 3) Sends an updated RSVP summary email to all targeted alumni for events happening tomorrow
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { logger } from "../lib/logger.js";
 import { sendBulkEmails } from "../lib/mailer.js";
@@ -76,13 +77,13 @@ export const runEventReminders = async (): Promise<EventReminderResult> => {
     // Find alumni who should have been notified but haven't responded.
     // Mirrors the department AND chapter targeting used when the event was
     // created, so reminders never reach anyone the original mail skipped.
-    const targetedProfile = {
+    const targetedProfile: Prisma.ProfileWhereInput = {
       ...(event.departments.length > 0 && { department: { in: event.departments } }),
       ...(event.chapterId && { chapterId: event.chapterId }),
     };
     const hasTargeting = Object.keys(targetedProfile).length > 0;
 
-    const whereClause: any = {
+    const whereClause: Prisma.UserWhereInput = {
       status: "APPROVED",
       roles: { some: { role: "ALUMNI" } },
       id: { notIn: Array.from(respondedUserIds) },

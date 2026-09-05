@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
 /**
@@ -33,7 +34,7 @@ const ChangePasswordCard = () => {
       reset();
       setOpen(false);
     },
-    onError: (e: any) => toast({ title: "Could not change password", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Could not change password", description: errorMessage(e), variant: "destructive" }),
   });
 
   const tooShort = form.newPassword.length > 0 && form.newPassword.length < 8;

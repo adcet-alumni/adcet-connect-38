@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
-import { BadRequest, Conflict, Forbidden, NotFound } from "../../lib/errors.js";
+import { BadRequest, Conflict, Forbidden, NotFound, errorMessage } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
 import { sendEmail } from "../../lib/mailer.js";
 import { chapterInvitationEmail, chapterInvitationResponseHtml } from "../../lib/email-templates.js";
@@ -433,10 +433,10 @@ export const handleEmailInvitationResponse = async (
     return response === "ACCEPT"
       ? chapterInvitationResponseHtml(`Welcome to the ${name}!`, `You are now a member of the ${name}. You'll receive its events and updates.`)
       : chapterInvitationResponseHtml(`Invitation declined`, `No problem — you have not been added to the ${name}, and nothing else has changed.`);
-  } catch (e: any) {
+  } catch (e: unknown) {
     return chapterInvitationResponseHtml(
       "We couldn't record that",
-      e?.message ?? "Something went wrong. Please respond from the alumni portal instead.",
+      errorMessage(e, "Something went wrong. Please respond from the alumni portal instead."),
       false,
     );
   }

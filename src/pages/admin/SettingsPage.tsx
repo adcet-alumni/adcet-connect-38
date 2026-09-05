@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { User, Bell, Moon, Shield, Mail, Edit, Loader2, Camera, X, Gauge } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/utils";
 import { storageUrl } from "@/lib/storage";
 import { uploadFile } from "@/lib/upload";
 import { toast } from "@/hooks/use-toast";
@@ -40,12 +42,17 @@ const WRITABLE: (keyof AdminProfile)[] = [
   "bio", "phone", "city", "country", "currentRole", "currentCompany", "avatarKey",
 ];
 
-const pick = (p: AdminProfile): AdminProfile =>
-  WRITABLE.reduce((acc, k) => {
-    const v = (p as any)[k];
-    if (v !== undefined) (acc as any)[k] = v;
-    return acc;
-  }, {} as AdminProfile);
+const pick = (p: AdminProfile): AdminProfile => {
+  const out: AdminProfile = {};
+  for (const key of WRITABLE) {
+    // `Object.assign` is what avoids a cast here: `out[key] = p[key]` asks
+    // TypeScript to prove the value type matches for *every* member of the
+    // `keyof AdminProfile` union at once, which it can't, so the direct assignment
+    // needs an `any` on both sides. This doesn't.
+    if (p[key] !== undefined) Object.assign(out, { [key]: p[key] });
+  }
+  return out;
+};
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -103,8 +110,8 @@ const SettingsPage = () => {
       // Members' composers read this; refresh so the new figure shows up.
       qc.invalidateQueries({ queryKey: ["feed", "quota"] });
     },
-    onError: (e: any) =>
-      toast({ title: "Save failed", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) =>
+      toast({ title: "Save failed", description: errorMessage(e), variant: "destructive" }),
   });
 
   const saveRecipients = useMutation({
@@ -117,8 +124,8 @@ const SettingsPage = () => {
       toast({ title: "Recipients saved" });
       qc.invalidateQueries({ queryKey: ["content", "section", "achievement_recipients"] });
     },
-    onError: (e: any) =>
-      toast({ title: "Save failed", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) =>
+      toast({ title: "Save failed", description: errorMessage(e), variant: "destructive" }),
   });
 
   const save = useMutation({
@@ -128,8 +135,8 @@ const SettingsPage = () => {
       setEditing(false);
       qc.invalidateQueries({ queryKey: ["profile"] });
     },
-    onError: (e: any) =>
-      toast({ title: "Update failed", description: e?.message, variant: "destructive" }),
+    onError: (e: unknown) =>
+      toast({ title: "Update failed", description: errorMessage(e), variant: "destructive" }),
   });
 
   const handleAvatarPick = async (file: File) => {
@@ -143,8 +150,8 @@ const SettingsPage = () => {
       await api.patch("/profiles/me", { avatarKey: key });
       toast({ title: "Photo updated" });
       qc.invalidateQueries({ queryKey: ["profile"] });
-    } catch (e: any) {
-      toast({ title: "Upload failed", description: e?.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Upload failed", description: errorMessage(e), variant: "destructive" });
     } finally {
       setUploading(false);
     }
@@ -332,7 +339,7 @@ const SettingsPage = () => {
             { key: "pushNotifications", icon: Bell, label: "Push Notifications", desc: "Get browser push notifications" },
             { key: "darkMode", icon: Moon, label: "Dark Mode", desc: "Toggle dark theme appearance" },
             { key: "weeklyDigest", icon: Mail, label: "Weekly Digest", desc: "Receive a weekly summary report" },
-          ] as { key: PreferenceKey; icon: any; label: string; desc: string }[]).map((pref) => (
+          ] as { key: PreferenceKey; icon: LucideIcon; label: string; desc: string }[]).map((pref) => (
             <div key={pref.key} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors">
               <div className="flex items-center gap-3">
                 <pref.icon className="h-4 w-4 text-muted-foreground" />
