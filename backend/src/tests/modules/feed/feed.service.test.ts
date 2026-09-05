@@ -16,6 +16,7 @@ jest.unstable_mockModule("../../../storage/index.js", () => ({
 }));
 
 const svc = await import("../../../modules/feed/feed.service.js");
+const { invalidateSettings } = await import("../../../lib/settings.js");
 
 const ALUMNI = { sub: "u-1", roles: ["ALUMNI"] as any };
 const OTHER = { sub: "u-2", roles: ["ALUMNI"] as any };
@@ -38,6 +39,9 @@ beforeEach(() => {
   );
   notifyMock.mockClear();
   deleteObject.mockClear();
+  // The settings registry caches reads for a few seconds; without this a limit
+  // stubbed by one test would leak into the next.
+  invalidateSettings();
 });
 
 describe("modules/feed/service", () => {
@@ -148,8 +152,8 @@ describe("modules/feed/service", () => {
 
   /** Let the caller through the monthly quota check with `used` slots spent. */
   const allowPost = (used = 0, limit?: number) => {
-    prismaMock.appSetting.findUnique.mockResolvedValueOnce(
-      limit === undefined ? null : { key: "feedPostsPerMonth", value: String(limit) },
+    prismaMock.appSetting.findMany.mockResolvedValueOnce(
+      limit === undefined ? [] : [{ key: "feedPostsPerMonth", value: String(limit) }],
     );
     prismaMock.postQuotaUsage.findUnique.mockResolvedValueOnce(used ? { count: used } : null);
   };
@@ -202,7 +206,7 @@ describe("modules/feed/service", () => {
       expect(quota).toMatchObject({ exempt: true, limit: null, remaining: null });
       // No limit lookup and no usage read for an exempt caller.
       expect(prismaMock.postQuotaUsage.findUnique).not.toHaveBeenCalled();
-      expect(prismaMock.appSetting.findUnique).not.toHaveBeenCalled();
+      expect(prismaMock.appSetting.findMany).not.toHaveBeenCalled();
     });
 
     it("reports zero remaining rather than a negative once over the limit", async () => {
@@ -305,18 +309,62 @@ describe("modules/feed/service", () => {
     expect(prismaMock.post.delete).not.toHaveBeenCalled();
   });
 
-  it("toggleLike adds a like when absent and removes it when present", async () => {
-    prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+  describe("toggleLike", () => {
+    /*
+     * The flip is a single `deleteMany` — a count rather than a throw when
+     * there is no row — so "was it liked" and "unlike it" are one decision
+     * instead of a read followed by a branch. Both branches run inside one
+     * transaction, so two taps in flight cannot both see "not liked" and race
+     * each other into the unique constraint.
+     */
+    it("likes a post that the caller had not liked", async () => {
+      prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+      prismaMock.postLike.deleteMany.mockResolvedValueOnce({ count: 0 });
+      prismaMock.postLike.count.mockResolvedValueOnce(1);
 
-    prismaMock.postLike.findUnique.mockResolvedValueOnce(null);
-    prismaMock.postLike.count.mockResolvedValueOnce(1);
-    await expect(svc.toggleLike(ALUMNI, "p-1")).resolves.toEqual({ liked: true, likeCount: 1 });
-    expect(prismaMock.postLike.create).toHaveBeenCalled();
+      await expect(svc.toggleLike(ALUMNI, "p-1")).resolves.toEqual({ liked: true, likeCount: 1 });
+      expect(prismaMock.postLike.create).toHaveBeenCalledWith({
+        data: { postId: "p-1", userId: "u-1" },
+      });
+    });
 
-    prismaMock.postLike.findUnique.mockResolvedValueOnce({ id: "l-1" });
-    prismaMock.postLike.count.mockResolvedValueOnce(0);
-    await expect(svc.toggleLike(ALUMNI, "p-1")).resolves.toEqual({ liked: false, likeCount: 0 });
-    expect(prismaMock.postLike.delete).toHaveBeenCalledWith({ where: { id: "l-1" } });
+    it("unlikes a post the caller had already liked", async () => {
+      prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+      prismaMock.postLike.deleteMany.mockResolvedValueOnce({ count: 1 });
+      prismaMock.postLike.count.mockResolvedValueOnce(0);
+
+      await expect(svc.toggleLike(ALUMNI, "p-1")).resolves.toEqual({ liked: false, likeCount: 0 });
+      expect(prismaMock.postLike.create).not.toHaveBeenCalled();
+      expect(prismaMock.postLike.deleteMany).toHaveBeenCalledWith({
+        where: { postId: "p-1", userId: "u-1" },
+      });
+    });
+
+    it("only ever removes the caller's own like", async () => {
+      prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+      prismaMock.postLike.deleteMany.mockResolvedValueOnce({ count: 1 });
+      prismaMock.postLike.count.mockResolvedValueOnce(0);
+
+      await svc.toggleLike(OTHER, "p-1");
+
+      const where = (prismaMock.postLike.deleteMany.mock.calls[0][0] as any).where;
+      expect(where.userId).toBe("u-2");
+    });
+
+    it("404s on a post that does not exist", async () => {
+      prismaMock.post.findUnique.mockResolvedValueOnce(null);
+      await expect(svc.toggleLike(ALUMNI, "gone")).rejects.toMatchObject({ status: 404 });
+      expect(prismaMock.postLike.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("runs the flip and the recount in one transaction", async () => {
+      prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+      prismaMock.postLike.deleteMany.mockResolvedValueOnce({ count: 0 });
+      prismaMock.postLike.count.mockResolvedValueOnce(1);
+
+      await svc.toggleLike(ALUMNI, "p-1");
+      expect(prismaMock.$transaction).toHaveBeenCalled();
+    });
   });
 
   it("addComment notifies the post author but not when they comment on themselves", async () => {

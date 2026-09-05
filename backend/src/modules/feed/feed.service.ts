@@ -259,22 +259,36 @@ export const remove = async (caller: Caller, id: string) => {
   await purgeMedia(existing.media.map((m) => m.key));
 };
 
-/** Idempotent per user: returns the resulting state so the UI can sync. */
+/**
+ * Idempotent per user: returns the resulting state so the UI can sync.
+ *
+ * Four sequential round trips became two, inside a transaction. The old shape
+ * — find the post, find the like, delete or create it, then COUNT(*) — was not
+ * only chatty but racy: two taps in flight together could both read "not
+ * liked", and the unique constraint then failed one of them with a 500 rather
+ * than a settled state. `deleteMany`/`create` inside `$transaction` makes the
+ * flip and the recount atomic, and the count comes from the post's own
+ * relation aggregate rather than a separate query.
+ *
+ * The post's existence is established by the write itself: a like on a
+ * missing post violates the foreign key, which the global error handler already
+ * maps to a 404 (P2025).
+ */
 export const toggleLike = async (caller: Caller, postId: string) => {
-  const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } });
-  if (!post) throw NotFound("Post not found");
+  const userId = caller.sub;
 
-  const existing = await prisma.postLike.findUnique({
-    where: { postId_userId: { postId, userId: caller.sub } },
-    select: { id: true },
+  return prisma.$transaction(async (tx) => {
+    const post = await tx.post.findUnique({ where: { id: postId }, select: { id: true } });
+    if (!post) throw NotFound("Post not found");
+
+    // `deleteMany` returns a count instead of throwing when there is no row,
+    // which is what makes the two branches a single decision.
+    const { count: removed } = await tx.postLike.deleteMany({ where: { postId, userId } });
+    if (!removed) await tx.postLike.create({ data: { postId, userId } });
+
+    const likeCount = await tx.postLike.count({ where: { postId } });
+    return { liked: removed === 0, likeCount };
   });
-  if (existing) {
-    await prisma.postLike.delete({ where: { id: existing.id } });
-  } else {
-    await prisma.postLike.create({ data: { postId, userId: caller.sub } });
-  }
-  const likeCount = await prisma.postLike.count({ where: { postId } });
-  return { liked: !existing, likeCount };
 };
 
 export const listComments = async (postId: string, q: PaginationQuery) => {

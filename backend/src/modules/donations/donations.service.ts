@@ -496,11 +496,23 @@ export const topDonorsCached = async (limit = 12): Promise<PublicDonor[]> => {
 /** Drop the cached roll — called whenever a donation's status changes. */
 export const invalidateTopDonors = () => topDonorsCache.clear();
 
+/**
+ * One donor's own giving history, newest first.
+ *
+ * Bounded, because an unbounded `findMany` is an unbounded `findMany` however
+ * unlikely a large result feels — and this one joins a campaign per row. The
+ * page renders the six most recent, so 50 is generous headroom rather than a
+ * page size, and the response stays a plain array: adding pagination here
+ * would change the shape for a list nobody scrolls.
+ */
+const MY_DONATIONS_LIMIT = 50;
+
 export const myDonations = (userId: string) =>
   prisma.donation.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
     include: { campaign: true },
+    take: MY_DONATIONS_LIMIT,
   });
 
 export const updateDonationStatus = async (

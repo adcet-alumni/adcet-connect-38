@@ -153,6 +153,25 @@ const schema = z.object({
     }
   }
 
+  /*
+   * `CORS_ORIGIN=*` becomes `origin: true` in app.ts, which reflects whatever
+   * Origin the browser sent — and it is paired with `credentials: true`. That
+   * combination is what allows any site to make authenticated cross-origin
+   * calls on a signed-in member's behalf. It is a reasonable default for local
+   * development and never a safe one in production, so production has to name
+   * its origins.
+   */
+  if (v.NODE_ENV === "production" && v.CORS_ORIGIN.trim() === "*") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["CORS_ORIGIN"],
+      message:
+        "CORS_ORIGIN must list the allowed origins in production — `*` combined with " +
+        "credentials lets any site make authenticated requests as a signed-in member. " +
+        "Set it to a comma-separated list, e.g. https://alumni.adcet.in",
+    });
+  }
+
   // Fail fast at boot rather than on the first upload attempt.
   if (v.STORAGE_DRIVER === "cloudinary" && !resolveCloudinary(v)) {
     ctx.addIssue({
