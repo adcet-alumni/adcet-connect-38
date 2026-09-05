@@ -154,10 +154,20 @@ const SORTS: Record<Exclude<DirectorySort, "relevant">, Prisma.ProfileOrderByWit
 /**
  * Walk the bands until the requested page is filled.
  *
- * Every band is counted first (all on indexed columns) so a page that starts
- * part-way through band 3 knows how far to skip into it. The counts also add up
- * to the total, so this replaces the single `count` the plain sort does rather
- * than adding a query on top of it.
+ * The bands **partition** the result set — own department, other departments,
+ * no department on file, each split three ways around the viewer's batch — so
+ * their counts add up to exactly what a plain sort would report. That is what
+ * lets the total come from a single `count` over the unbanded predicate rather
+ * than from summing nine of them.
+ *
+ * Band counts are then only needed to answer "how far into the bands does this
+ * page start", which is a question page 1 does not ask. Counting all nine
+ * up front cost nine `COUNT(*)` on every directory open — the landing screen of
+ * the member portal — and each one carries the caller's search terms, so a
+ * two-word query multiplied into eighteen scans of Profile joined to User.
+ * They are now counted lazily, one band at a time, only until the offset is
+ * consumed: page 1 issues none, and a deep page issues only as many as it
+ * has to skip past.
  */
 const searchByRelevance = async (q: DirectoryQuery, viewer: Viewer) => {
   const base = buildWhere(q);
@@ -166,19 +176,27 @@ const searchByRelevance = async (q: DirectoryQuery, viewer: Viewer) => {
     where: { AND: [base, b.where] } satisfies Prisma.ProfileWhereInput,
   }));
 
-  const counts = await Promise.all(bands.map((b) => prisma.profile.count({ where: b.where })));
-  const total = counts.reduce((sum, n) => sum + n, 0);
-
   const { skip, take } = paginate(q);
+
+  // The total does not depend on the banding, so it runs alongside the walk
+  // rather than gating it.
+  const totalPromise = prisma.profile.count({ where: base });
+
   const items: CardRow[] = [];
   let cursor = skip;
 
-  for (const [i, band] of bands.entries()) {
+  for (const band of bands) {
     if (items.length >= take) break;
-    if (cursor >= counts[i]) {
-      cursor -= counts[i]; // the whole band sits before the requested page
-      continue;
+
+    if (cursor > 0) {
+      // Only reached while the requested page still starts beyond this band.
+      const inBand = await prisma.profile.count({ where: band.where });
+      if (cursor >= inBand) {
+        cursor -= inBand; // the whole band sits before the requested page
+        continue;
+      }
     }
+
     const rows = await prisma.profile.findMany({
       where: band.where,
       select: cardSelect,
@@ -192,7 +210,7 @@ const searchByRelevance = async (q: DirectoryQuery, viewer: Viewer) => {
 
   return {
     items: items.map(toCard),
-    pagination: paginationMeta(total, q),
+    pagination: paginationMeta(await totalPromise, q),
     // What the ordering was based on, so the page can say so out loud instead
     // of silently reordering itself.
     relevance: viewer,

@@ -128,9 +128,18 @@ describe("/alumni — relevance", () => {
   it("hides nobody — every band filters only on approved accounts", async () => {
     await request(app).get("/api/v1/alumni").set("Authorization", bearer(token));
 
-    const wheres = prisma.profile.count.mock.calls.map((c: any) => c[0].where);
+    // Read off the reads: a first page issues no band counts, so `findMany` is
+    // where the bands are visible. A band is a slice of the same result set,
+    // never an extra filter on it — anything else would drop members out of
+    // the directory depending on who was looking.
+    const wheres = prisma.profile.findMany.mock.calls.map((c: any) => c[0].where);
     expect(wheres.length).toBeGreaterThan(1);
     for (const w of wheres) expect(w.AND[0].user).toEqual({ status: "APPROVED" });
+
+    // And the total counts the same set, unbanded.
+    const totalWhere = (prisma.profile.count.mock.calls[0][0] as any).where;
+    expect(totalWhere.user).toEqual({ status: "APPROVED" });
+    expect(totalWhere.AND).toBeUndefined();
   });
 
   it("returns a card, not a profile row", async () => {
