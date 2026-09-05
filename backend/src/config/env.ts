@@ -41,6 +41,28 @@ const schema = z.object({
   CORS_ORIGIN: z.string().default("*"),
 
   DATABASE_URL: z.string().url(),
+  /**
+   * Prisma connection-pool size **per process**.
+   *
+   * Prisma's own default is `num_physical_cpus * 2 + 1`, which means the pool
+   * silently changes size when the container gets a different CPU allocation —
+   * the one number you least want inferred from the host. Set it explicitly and
+   * size it against Postgres `max_connections` divided by the number of
+   * processes you run (API replicas + the worker), leaving headroom for
+   * migrations and psql.
+   *
+   * A value already present in `DATABASE_URL` wins, so an operator can still
+   * pass `?connection_limit=` directly.
+   */
+  DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).default(10),
+  /** Seconds to wait for a free connection before giving up (Prisma default 10). */
+  DATABASE_POOL_TIMEOUT: z.coerce.number().int().min(1).default(20),
+  /**
+   * Queries at or above this many milliseconds are logged at `warn`.
+   * Production logged only `warn`/`error`, so there was no way to tell which
+   * query was slow — only that something was.
+   */
+  DATABASE_SLOW_QUERY_MS: z.coerce.number().int().min(1).default(200),
 
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
