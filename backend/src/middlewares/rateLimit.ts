@@ -17,7 +17,7 @@ export const globalLimiter = rateLimit({
   skip: isTest,
 });
 
-export const authLimiter = rateLimit({
+const createAuthLimiter = () => rateLimit({
   windowMs: RATE_LIMITS.AUTH_WINDOW_MS,
   max: RATE_LIMITS.AUTH_MAX,
   standardHeaders: true,
@@ -25,3 +25,7 @@ export const authLimiter = rateLimit({
   message: { error: { code: "TOO_MANY_REQUESTS", message: "Too many auth attempts, slow down." } },
   skip: isTest,
 });
+
+/** Login attempts get their own bucket so they cannot block registration or recovery. */
+export const loginLimiter = createAuthLimiter();
+export const authLimiter = createAuthLimiter();

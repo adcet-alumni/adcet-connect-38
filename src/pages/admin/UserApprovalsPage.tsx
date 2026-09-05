@@ -100,6 +100,7 @@ const UserApprovalsPage = () => {
       toast({ title: `User ${v.status.toLowerCase()}` });
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       qc.invalidateQueries({ queryKey: ["analytics", "admin-overview"] });
+      void qc.refetchQueries({ queryKey: ["analytics", "admin-overview"] });
       setSelectedIds((s) => { const n = new Set(s); n.delete(v.id); return n; });
     },
     onError: (e: Error) => toast({ title: "Action failed", description: e.message, variant: "destructive" }),
@@ -120,6 +121,7 @@ const UserApprovalsPage = () => {
       setBulkRejectOpen(false);
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       qc.invalidateQueries({ queryKey: ["analytics", "admin-overview"] });
+      void qc.refetchQueries({ queryKey: ["analytics", "admin-overview"] });
     },
     onError: (e: Error) => toast({ title: "Bulk action failed", description: e.message, variant: "destructive" }),
   });

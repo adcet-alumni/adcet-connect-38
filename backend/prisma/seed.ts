@@ -54,6 +54,7 @@ const USERS: SeedUser[] = [
       country: "India",
       currentCompany: "Infosys",
       currentRole: "SDE-2",
+      phone: "+91 90000 00001",
       linkedinUrl: "https://linkedin.com/in/alice-patil",
     },
     chapterSlug: "pune",
@@ -77,6 +78,8 @@ const USERS: SeedUser[] = [
       country: "India",
       currentCompany: "Tata Motors",
       currentRole: "Design Engineer",
+      phone: "+91 90000 00002",
+      linkedinUrl: "https://linkedin.com/in/bob-kulkarni",
     },
     chapterSlug: "bangalore",
   },
@@ -99,6 +102,8 @@ const USERS: SeedUser[] = [
       country: "India",
       currentCompany: "TCS",
       currentRole: "Senior Developer",
+      phone: "+91 90000 00003",
+      linkedinUrl: "https://linkedin.com/in/priya-sharma",
       githubUrl: "https://github.com/priya-sharma",
     },
     chapterSlug: "mumbai",
@@ -122,6 +127,8 @@ const USERS: SeedUser[] = [
       country: "India",
       currentCompany: "EduSpark (Founder)",
       currentRole: "CEO",
+      phone: "+91 90000 00004",
+      linkedinUrl: "https://linkedin.com/in/rahul-desai",
     },
     chapterSlug: "pune",
   },
@@ -142,6 +149,10 @@ const USERS: SeedUser[] = [
       graduationYear: 2026,
       city: "Sangli",
       country: "India",
+      currentCompany: "Google Summer of Code",
+      currentRole: "Software Developer",
+      phone: "+91 90000 00005",
+      linkedinUrl: "https://linkedin.com/in/sneha-kale",
     },
   },
   {
@@ -165,6 +176,8 @@ const USERS: SeedUser[] = [
       country: "India",
       currentCompany: "Persistent Systems",
       currentRole: "Sr. Recruiter",
+      phone: "+91 90000 00006",
+      linkedinUrl: "https://linkedin.com/in/neha-joshi",
     },
   },
 ];
@@ -173,7 +186,16 @@ const upsertUser = async (u: SeedUser) => {
   const hash = await bcrypt.hash(u.password, 12);
   const user = await prisma.user.upsert({
     where: { email: u.email },
-    update: {},
+    update: u.profile
+      ? {
+          profile: {
+            upsert: {
+              create: u.profile as Prisma.ProfileCreateWithoutUserInput,
+              update: u.profile as Prisma.ProfileUpdateWithoutUserInput,
+            },
+          },
+        }
+      : {},
     create: {
       email: u.email,
       passwordHash: hash,
@@ -449,12 +471,17 @@ async function main() {
   console.log("📅 Seeding events…");
   const now = new Date();
   const inDays = (d: number) => new Date(now.getTime() + d * 86_400_000);
+  const inDaysAt = (d: number, hour: number, minute: number) => {
+    const date = inDays(d);
+    date.setHours(hour, minute, 0, 0);
+    return date;
+  };
   const evt1 = await upsertEvent({
     title: "Annual Alumni Meet 2026",
     description: "Reconnect with batchmates and faculty over dinner.",
     location: "ADCET Campus, Ashta",
-    startsAt: inDays(30),
-    endsAt: inDays(30),
+    startsAt: inDaysAt(30, 18, 30),
+    endsAt: inDaysAt(30, 21, 0),
     capacity: 300,
     status: "APPROVED",
     createdById: admin.id,
@@ -464,7 +491,7 @@ async function main() {
     description: "Alice shares lessons from production systems at Infosys.",
     location: "Online (Zoom)",
     isOnline: true,
-    startsAt: inDays(7),
+    startsAt: inDaysAt(7, 16, 0),
     capacity: 200,
     // Targeted at two departments — only those alumni get the email.
     departments: [
@@ -478,7 +505,7 @@ async function main() {
     title: "Founder AMA with Rahul Desai",
     description: "From campus to startup CEO — open Q&A.",
     location: "ADCET Auditorium",
-    startsAt: inDays(14),
+    startsAt: inDaysAt(14, 17, 30),
     capacity: 150,
     status: "PENDING",
     createdById: rahul.id,
@@ -488,7 +515,7 @@ async function main() {
     title: "Pune Chapter Meetup — Q3 Networking Evening",
     description: "Drinks, lightning talks and referrals with the Pune alumni crowd.",
     location: "Koregaon Park, Pune",
-    startsAt: inDays(21),
+    startsAt: inDaysAt(21, 18, 0),
     capacity: 80,
     chapterId: chapterIds.get("pune"),
     status: "APPROVED",

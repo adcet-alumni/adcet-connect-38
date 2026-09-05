@@ -37,6 +37,8 @@ export const newsQuery = () => ({
 export const newslettersQuery = () => ({
   queryKey: ["content", "newsletters"] as const,
   queryFn: () => api.get<Paginated<Newsletter>>("/content/newsletters", { pageSize: 100 }),
+  staleTime: 5 * 60 * 1000,
+  refetchOnWindowFocus: false,
 });
 
 /** "June 2026" — the granularity the alumni office actually publishes at. */

@@ -108,6 +108,19 @@ const schema = z.object({
   GEOCODER_MIN_INTERVAL_MS: z.coerce.number().default(1100),
   GEOCODER_TIMEOUT_MS: z.coerce.number().default(8000),
 }).superRefine((v, ctx) => {
+  const placeholderSecret = "change-me-32-chars-minimum-secret";
+  if (v.NODE_ENV === "production") {
+    for (const key of ["JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET"] as const) {
+      if (v[key] === placeholderSecret) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is still the .env.example placeholder; generate a real secret before deploying to production.`,
+        });
+      }
+    }
+  }
+
   // Fail fast at boot rather than on the first upload attempt.
   if (v.STORAGE_DRIVER === "cloudinary" && !resolveCloudinary(v)) {
     ctx.addIssue({
