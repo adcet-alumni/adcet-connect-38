@@ -80,6 +80,14 @@ npm run prisma:migrate -- --name init
 npm run seed
 npm run dev
 ```
+
+Background jobs run in their own process, not the API. Start one when you are
+working on them:
+
+```bash
+npm run worker
+```
+
 - API:    http://localhost:4000/api/v1
 - Docs:   http://localhost:4000/api/docs
 - MinIO:  http://localhost:9001 (minioadmin / minioadmin)
@@ -95,8 +103,19 @@ Production-grade Jest suite with **two layers**:
    exercised with `supertest` against `buildApp()`, with the Prisma client
    replaced by a `jest-mock-extended` deep mock (no live DB required). Files
    under `src/tests/integration/`.
+3. **Database tests** — a small third layer for the things a mock cannot
+   answer, because the behaviour lives in SQL rather than in our code: the job
+   lease's "only one worker wins" guarantee, and the admin insights
+   aggregation's month bucketing and department filters. They read
+   `DATABASE_URL` and **skip themselves when no database is reachable**, so
+   `npm test` still works without one; CI runs a Postgres service so they
+   actually gate. Run them locally with
+   `npx dotenv -e .env.development -- npm test`.
 
-Together they cover **281 tests** at ~82% statement coverage, including:
+   The rule of thumb for which layer a test belongs in: if a mock would only
+   confirm that we sent the query we wrote, it belongs here.
+
+Together they cover **908 tests**, including:
 - Authentication / RBAC (401 on missing token, 403 when a non-admin hits an admin route)
 - Validation failures (422 on malformed bodies / queries — drives `validators.ts`)
 - Database failures mocked through Prisma (P2002 → 409, P2025 → 404, generic → 500)
@@ -164,6 +183,13 @@ npm run lint           # report
 npm run lint -- --fix  # auto-fix where possible
 ```
 
+Both apps lint at **zero errors and zero warnings**; the flat config lives at
+the repo root and covers `backend/src` too, so `npm run lint` from either place
+checks this code.
+
 Conventions: no `any` — use `unknown`, Prisma's `Xxx*Input` helpers, or
-narrow Express types (`Request`, `Response`). New service methods follow the
-`routes → controller → service → prisma` flow with Zod validators per route.
+narrow Express types (`Request`, `Response`). Read a caught error's message
+through `errorMessage()` in `lib/errors.ts` rather than typing the binding.
+A deliberately unused argument is prefixed `_`, which the linter is configured
+to accept. New service methods follow the `routes → controller → service →
+prisma` flow with Zod validators per route.

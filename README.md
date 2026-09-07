@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="public/logo.png" alt="ADCET Alumni Portal" height="60" width="60" />
+  <img src="public/logo.jpeg" alt="" height="60" width="60" />
   <br />
   ADCET Alumni Portal
 </h1>
@@ -47,10 +47,10 @@
 
 ## Features
 
-- **Authentication & RBAC** — JWT access + refresh tokens, four roles
-  (`ADMIN`, `ALUMNI`), roles stored in a separate
-  table to prevent privilege escalation. Multi-step registration with
-  LinkedIn (required), GitHub, Twitter/X, and website URLs.
+- **Authentication & RBAC** — JWT access + refresh tokens, two roles
+  (`ADMIN`, `ALUMNI`), stored in a separate table to prevent privilege
+  escalation. Multi-step registration with LinkedIn (required), GitHub,
+  Twitter/X, and website URLs.
 - **Alumni Directory** with filters (department, year, company, city).
 - **5 Themes** — Default, Ocean, Sunset, Forest, Royal — with dark mode toggle.
   Persisted per-user in the database.
@@ -72,6 +72,9 @@
 - **Email Notifications** — branded HTML emails for events, jobs, applications,
   RSVP confirmations, and moderation actions. SMTP configurable via env vars.
 - **Pluggable Storage** — MinIO (dev) → S3 or Cloudinary (prod) via a single env switch.
+- **Background worker** — event reminders, résumé retention and geo backfill run
+  in their own process, each tick claiming a database lease so scaling the API
+  never duplicates a job.
 
 ## Tech Stack
 
@@ -79,6 +82,7 @@
 |------|------|
 | Frontend | Vite · React 18 · TypeScript · Tailwind · shadcn/ui · TanStack Query · Framer Motion |
 | Backend | Node.js · Express · TypeScript · Prisma · Zod · Pino |
+| Background jobs | A second Node entrypoint (`backend/src/worker.ts`), leased through Postgres |
 | Database | PostgreSQL 16 |
 | Storage | MinIO (S3-compatible) — swappable to AWS S3 |
 | Infra (dev) | Docker Compose |
@@ -94,8 +98,11 @@
 │   └── lib/api.ts        # Typed API client (auth + refresh)
 ├── backend/              # Express + Prisma backend
 │   ├── prisma/           # schema.prisma + seed.ts
+│   ├── src/server.ts     # API entrypoint
+│   ├── src/worker.ts     # Background jobs entrypoint (run exactly one)
 │   ├── src/modules/      # Feature modules (routes/controller/service)
 │   ├── src/middlewares/  # auth, rbac, validate, errorHandler
+│   ├── src/jobs/         # Reminders, résumé + token retention, geo backfill
 │   ├── src/storage/      # Pluggable storage (S3/Local)
 │   └── docker-compose.yml
 └── docs/                 # Architectural notes
@@ -106,7 +113,7 @@
 - **Node.js** ≥ 20
 - **npm** ≥ 10 (or `bun`)
 - **Docker** + **Docker Compose** (for Postgres & MinIO)
-- A free TCP port `4000` (API), `5173`/`8080` (frontend), `5432` (Postgres), `9000-9001` (MinIO)
+- A free TCP port `4000` (API), `8080` (frontend), `5433` (Postgres), `9000-9001` (MinIO)
 
 ## Local Setup
 
@@ -132,7 +139,7 @@ docker compose up -d
 ```
 
 This brings up:
-- **Postgres** on `localhost:5432` (db: `adcet`, user: `adcet`, password: `adcet`)
+- **Postgres** on `localhost:5433` (db: `adcet_alumni`, user: `adcet`, password: `adcet`)
 - **MinIO** on `localhost:9000` (console at `localhost:9001`, creds: `minioadmin` / `minioadmin`)
 
 ### 3. Initialize the database & seed
@@ -143,9 +150,9 @@ npm run prisma:migrate -- --name init   # first time only
 npm run seed                            # idempotent — safe to re-run
 ```
 
-The seed creates **1 admin + 6 users** (alumni / student / recruiter) with
-realistic interconnected data: profiles, jobs, events, achievements,
-donations, RSVPs, and applications.
+The seed creates **1 admin + 6 alumni** with realistic interconnected data:
+profiles, jobs, events, achievements, donations, RSVPs, and applications. It
+also places every alumnus on the map offline, using the built-in gazetteer.
 
 ### 4. Run the apps
 
@@ -162,9 +169,10 @@ npm run dev            # http://localhost:8080
 
 Open http://localhost:8080 and sign in.
 
-Background jobs (event reminders, résumé retention, geo backfill) do **not**
-run in the API process — every replica of it would run every tick. They live in
-a third process, which you only need if you are working on one of them:
+Background jobs (event reminders, résumé and token retention, geo backfill) do
+**not** run in the API process — every replica of it would run every tick, so
+three replicas would send every alumnus three copies of each reminder. They
+live in a third process, which you only need if you are working on one of them:
 
 ```bash
 # Terminal 3 — background jobs (optional in dev; run exactly one in production)
@@ -199,7 +207,9 @@ Two env files at the project root for the frontend, two in `backend/`.
 
 | Variable | Default | Purpose |
 |---------|---------|---------|
-| `VITE_API_BASE_URL` | `http://localhost:4000/api/v1` | Backend API URL |
+| `VITE_API_BASE_URL` | `http://localhost:4000/api/v1` | Backend API URL. **Read at build time**, both by the client and by the generated Content-Security-Policy — set it before `npm run build`, not after |
+| `VITE_STORAGE_PUBLIC_BASE_URL` | `http://localhost:9000/adcet-alumni` | Where uploaded files are served from. Leave empty for Cloudinary |
+| `VITE_CLOUDINARY_CLOUD_NAME` | _(empty)_ | Set when `STORAGE_DRIVER=cloudinary`, so delivery URLs and the CSP both know the origin |
 
 ### Backend — `backend/.env.development` (used by `npm run dev` / `npm run seed`)
 
@@ -207,14 +217,18 @@ Two env files at the project root for the frontend, two in `backend/`.
 |---------|---------|---------|
 | `NODE_ENV` | `development` | Runtime mode |
 | `PORT` | `4000` | API port |
-| `DATABASE_URL` | `postgresql://adcet:adcet@localhost:5432/adcet` | Postgres connection |
+| `DATABASE_URL` | `postgresql://adcet:adcet@localhost:5433/adcet_alumni` | Postgres connection |
+| `DATABASE_CONNECTION_LIMIT` | `10` | Pool size **per process**. Budget `(API replicas + worker) × limit` against Postgres `max_connections` |
+| `DATABASE_POOL_TIMEOUT` | `20` | Seconds to wait for a free connection before failing the request |
+| `DATABASE_SLOW_QUERY_MS` | `200` | Queries at or above this are logged at `warn`, in every environment |
 | `JWT_ACCESS_SECRET` | _dev value_ | Access-token signing key |
 | `JWT_REFRESH_SECRET` | _dev value_ | Refresh-token signing key |
-| `CORS_ORIGIN` | `http://localhost:8080` | Allowed frontend origin |
+| `CORS_ORIGIN` | `http://localhost:8080` | Allowed frontend origins, comma-separated. **`*` is refused in production** — combined with credentials it lets any site make authenticated requests as a signed-in member |
+| `RESUME_RETENTION_DAYS` | `180` | How long an uploaded résumé is kept before the worker deletes it |
 | `API_BASE_URL` | `http://localhost:4000/api/v1` | Public API URL (used in email RSVP links) |
 | `STORAGE_DRIVER` | `minio` | `minio` \| `s3` \| `cloudinary` \| `local` |
 | `S3_ENDPOINT` | `http://localhost:9000` | MinIO endpoint |
-| `S3_BUCKET` | `adcet` | Default bucket |
+| `STORAGE_BUCKET` | `adcet-alumni` | Default bucket |
 | `S3_ACCESS_KEY` | `minioadmin` | MinIO access key |
 | `S3_SECRET_KEY` | `minioadmin` | MinIO secret key |
 | `CLOUDINARY_URL` | _(empty)_ | `cloudinary://key:secret@cloud` — required when `STORAGE_DRIVER=cloudinary` (or set the three vars below) |
@@ -235,6 +249,11 @@ Two env files at the project root for the frontend, two in `backend/`.
 Same keys, but with **production** values: managed Postgres URL, real S3
 bucket/credentials, strong JWT secrets, and your public frontend origin.
 **Never commit production secrets** — use your platform's secret manager.
+
+Three of these are validated at boot and will stop the process rather than let
+it start misconfigured: `CORS_ORIGIN` may not be `*`, the JWT secrets may not
+still be the `.env.example` placeholders, and `STORAGE_DRIVER=cloudinary`
+requires its credentials.
 
 ## Common Scripts
 
@@ -295,16 +314,47 @@ requires only:
      (then set `VITE_CLOUDINARY_CLOUD_NAME` for the frontend and leave both
      `STORAGE_PUBLIC_BASE_URL` and `VITE_STORAGE_PUBLIC_BASE_URL` empty)
    - `JWT_*_SECRET` → long random strings (≥ 64 chars)
-   - `CORS_ORIGIN` → your real frontend domain
-   - `VITE_API_BASE_URL` → your real API domain (rebuild frontend)
+   - `CORS_ORIGIN` → your real frontend domain(s), comma-separated. `*` is
+     refused in production and the process will not boot with it
+   - `VITE_API_BASE_URL` → your real API domain. The frontend **must be rebuilt**
+     after changing it: it is baked into the bundle *and* into the
+     Content-Security-Policy, so a stale value blocks every request the app makes
    - `ADMIN_EMAIL` / `ADMIN_PASSWORD` → bootstraps the first admin (see below)
-4. **Apply migrations, bootstrap the admin, then start**
+4. **Apply migrations, bootstrap the admin, then start the API**
    ```bash
    npx prisma migrate deploy && npm run seed:admin && npm run start
    ```
-   Serve the frontend `dist/` from any static host or CDN.
+   One of the migrations (`…_trigram_search_indexes`) runs
+   `CREATE EXTENSION IF NOT EXISTS pg_trgm` for the directory and feed search
+   indexes, so the database role needs rights to create extensions. Managed
+   Postgres generally allows it — worth confirming before the first deploy
+   rather than during it.
+
+   Serve the frontend `dist/` from any static host or CDN. On Netlify,
+   `public/_headers` ships the security headers a `<meta>` tag cannot set;
+   on another host, apply the equivalent.
+5. **Run exactly one worker**, as a separate process or dyno:
+   ```bash
+   npm run start:worker
+   ```
+   Event reminders, résumé and token retention and the geo backfill live here,
+   never in the API. Every tick claims a `JobLease` row first, so a rolling
+   deploy that briefly overlaps two workers skips rather than duplicates — but
+   the API scales freely only because the jobs are not in it.
 
 No code changes are required to switch environments.
+
+### Health checks
+
+Point your orchestrator at the right one — they answer different questions:
+
+| Endpoint | Meaning | Use for |
+|---|---|---|
+| `GET /api/v1/health/live` | The process is running. Touches nothing else | Liveness probe / restart policy |
+| `GET /api/v1/health/ready` | Postgres and storage are reachable; `503` with a per-dependency reason when not | Readiness probe / load-balancer membership |
+
+Do not use readiness as a liveness probe: a database outage would then fail
+every replica at once and restart the whole deployment.
 
 ### Bootstrapping the first admin
 
