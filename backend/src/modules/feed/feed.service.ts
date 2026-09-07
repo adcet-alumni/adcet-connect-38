@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { Forbidden, NotFound, TooMany } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
+import type { FeedListQuery } from "./feed.validators.js";
 import type { AppRoleName } from "../../config/constants.js";
 import { getStorage } from "../../storage/index.js";
 import { logger } from "../../lib/logger.js";
@@ -58,21 +59,61 @@ const purgeMedia = async (keys: string[]) => {
   );
 };
 
-export const list = async (q: PaginationQuery & { authorId?: string; q?: string }, caller: Caller) => {
+/**
+ * One page of the feed, newest first, anchored to a cursor rather than an
+ * offset.
+ *
+ * Ordering by `(createdAt desc, id desc)` and seeking past the cursor row is
+ * what makes this stable while people are posting: `OFFSET` counts rows, so a
+ * post published mid-scroll shifts every later row down a place and the reader
+ * sees the same post twice. `id` is the tiebreaker because two posts can share
+ * a millisecond, and without it such a pair could straddle a page boundary and
+ * one of them be skipped. Both columns come from the `@@index([createdAt])`.
+ *
+ * `nextCursor` is null when the last page has been served, which is the only
+ * signal an infinite scroll needs — there is deliberately no `COUNT(*)`.
+ */
+export const list = async (q: FeedListQuery, caller: Caller) => {
   const where: Prisma.PostWhereInput = {
     ...(q.authorId && { authorId: q.authorId }),
     ...(q.q && { content: { contains: q.q, mode: "insensitive" } }),
   };
-  const [items, total] = await Promise.all([
-    prisma.post.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: postInclude(caller.sub),
-      ...paginate(q),
-    }),
-    prisma.post.count({ where }),
-  ]);
-  return { items: items.map(toDto), pagination: paginationMeta(total, q) };
+
+  const anchor = q.cursor
+    ? await prisma.post.findUnique({
+        where: { id: q.cursor },
+        select: { createdAt: true, id: true },
+      })
+    : null;
+
+  // A cursor pointing at a deleted post would otherwise silently restart the
+  // feed from the top, so say so instead of quietly repeating page one.
+  if (q.cursor && !anchor) throw NotFound("That point in the feed no longer exists");
+
+  const rows = await prisma.post.findMany({
+    where: {
+      ...where,
+      ...(anchor && {
+        OR: [
+          { createdAt: { lt: anchor.createdAt } },
+          { createdAt: anchor.createdAt, id: { lt: anchor.id } },
+        ],
+      }),
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    include: postInclude(caller.sub),
+    // One extra row, purely to learn whether another page exists without
+    // counting the whole table.
+    take: q.limit + 1,
+  });
+
+  const hasMore = rows.length > q.limit;
+  const items = hasMore ? rows.slice(0, q.limit) : rows;
+
+  return {
+    items: items.map(toDto),
+    nextCursor: hasMore ? items[items.length - 1].id : null,
+  };
 };
 
 export const getById = async (id: string, caller: Caller) => {
@@ -218,22 +259,36 @@ export const remove = async (caller: Caller, id: string) => {
   await purgeMedia(existing.media.map((m) => m.key));
 };
 
-/** Idempotent per user: returns the resulting state so the UI can sync. */
+/**
+ * Idempotent per user: returns the resulting state so the UI can sync.
+ *
+ * Four sequential round trips became two, inside a transaction. The old shape
+ * — find the post, find the like, delete or create it, then COUNT(*) — was not
+ * only chatty but racy: two taps in flight together could both read "not
+ * liked", and the unique constraint then failed one of them with a 500 rather
+ * than a settled state. `deleteMany`/`create` inside `$transaction` makes the
+ * flip and the recount atomic, and the count comes from the post's own
+ * relation aggregate rather than a separate query.
+ *
+ * The post's existence is established by the write itself: a like on a
+ * missing post violates the foreign key, which the global error handler already
+ * maps to a 404 (P2025).
+ */
 export const toggleLike = async (caller: Caller, postId: string) => {
-  const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } });
-  if (!post) throw NotFound("Post not found");
+  const userId = caller.sub;
 
-  const existing = await prisma.postLike.findUnique({
-    where: { postId_userId: { postId, userId: caller.sub } },
-    select: { id: true },
+  return prisma.$transaction(async (tx) => {
+    const post = await tx.post.findUnique({ where: { id: postId }, select: { id: true } });
+    if (!post) throw NotFound("Post not found");
+
+    // `deleteMany` returns a count instead of throwing when there is no row,
+    // which is what makes the two branches a single decision.
+    const { count: removed } = await tx.postLike.deleteMany({ where: { postId, userId } });
+    if (!removed) await tx.postLike.create({ data: { postId, userId } });
+
+    const likeCount = await tx.postLike.count({ where: { postId } });
+    return { liked: removed === 0, likeCount };
   });
-  if (existing) {
-    await prisma.postLike.delete({ where: { id: existing.id } });
-  } else {
-    await prisma.postLike.create({ data: { postId, userId: caller.sub } });
-  }
-  const likeCount = await prisma.postLike.count({ where: { postId } });
-  return { liked: !existing, likeCount };
 };
 
 export const listComments = async (postId: string, q: PaginationQuery) => {

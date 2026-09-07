@@ -76,6 +76,15 @@ export type MockedPrisma = {
   [K in (typeof MODELS)[number]]: { [M in (typeof MODEL_METHODS)[number]]: jest.Mock };
 } & {
   $transaction: jest.Mock;
+  /**
+   * Aggregations that Prisma's query builder cannot express — `date_trunc`
+   * month bucketing, chiefly — go through raw SQL. Stubbing this lets a unit
+   * test pin how those rows are *transformed*; whether the SQL itself groups
+   * and filters correctly is only answerable against a real database, which is
+   * what the tests under `tests/modules/analytics/insights.test.ts` do.
+   */
+  $queryRaw: jest.Mock;
+  $executeRaw: jest.Mock;
 };
 
 export const createPrismaMock = (): MockedPrisma => {
@@ -84,6 +93,8 @@ export const createPrismaMock = (): MockedPrisma => {
     out[m] = {};
     for (const fn of MODEL_METHODS) out[m][fn] = jest.fn();
   }
+  out.$queryRaw = jest.fn(async () => []);
+  out.$executeRaw = jest.fn(async () => 0);
   // $transaction defaults to running each promise in the array sequentially.
   out.$transaction = jest.fn(async (arg: any) => {
     if (Array.isArray(arg)) return Promise.all(arg);

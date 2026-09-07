@@ -107,10 +107,17 @@ describe("modules/alumni/service — search where-builder", () => {
 describe("modules/alumni/service — relevance ordering", () => {
   const VIEWER = { department: "Computer Science and Engineering", graduationYear: 2020 };
 
-  /** The `where`/`orderBy` pairs the service asked for, band by band. */
+  /**
+   * The band predicates the service asked for, in order.
+   *
+   * Read off `findMany`, not `count`: page 1 issues no band counts at all, so
+   * the reads are where the banding is now visible. With `findMany` stubbed
+   * empty the walk never fills its page, which is what makes it enumerate
+   * every band.
+   */
   const bandsFor = async (viewer: any, q: any = {}) => {
     await svc.search({ page: 1, pageSize: 10, ...q }, viewer);
-    return prismaMock.profile.count.mock.calls.map((c: any) => c[0].where);
+    return prismaMock.profile.findMany.mock.calls.map((c: any) => c[0].where);
   };
 
   it("puts the viewer's own department first, then everyone else, then the departmentless", async () => {
@@ -132,7 +139,7 @@ describe("modules/alumni/service — relevance ordering", () => {
 
   it("walks out from the viewer's own batch: own year, then seniors, then juniors", async () => {
     await svc.search({ page: 1, pageSize: 10 }, VIEWER);
-    const [own, juniors, undated] = prismaMock.profile.count.mock.calls
+    const [own, juniors, undated] = prismaMock.profile.findMany.mock.calls
       .slice(0, 3)
       .map((c: any) => c[0].where.AND[1].graduationYear);
 
@@ -166,13 +173,45 @@ describe("modules/alumni/service — relevance ordering", () => {
     expect(bands[0].AND[1]).toEqual({});
   });
 
-  it("reports the total across every band, and the basis it ordered by", async () => {
-    prismaMock.profile.count.mockResolvedValue(4); // 9 bands × 4
-    prismaMock.profile.findMany.mockResolvedValue([]);
+  it("reports the total from one count over the unbanded predicate", async () => {
+    // The bands partition the result set, so their counts would sum to exactly
+    // this — which is why the total does not need to sum nine of them.
+    prismaMock.profile.count.mockResolvedValue(36);
 
     const out = await svc.search({ page: 1, pageSize: 10 }, VIEWER);
+
     expect(out.pagination.total).toBe(36);
     expect(out.relevance).toEqual(VIEWER);
+    expect(prismaMock.profile.count).toHaveBeenCalledTimes(1);
+    // Counted without any band clause — the plain filter on its own.
+    const where = (prismaMock.profile.count.mock.calls[0][0] as any).where;
+    expect(where.AND).toBeUndefined();
+    expect(where.user).toEqual({ status: "APPROVED" });
+  });
+
+  it("issues no band counts for page 1, however many bands there are", async () => {
+    // Nine COUNT(*) on every directory open was the cost this replaced, and
+    // each one carries the caller's search terms — so a two-word query used to
+    // multiply into eighteen scans before a single row came back.
+    await svc.search({ page: 1, pageSize: 10, q: "asha kulkarni" }, VIEWER);
+
+    expect(prismaMock.profile.findMany).toHaveBeenCalledTimes(9);
+    expect(prismaMock.profile.count).toHaveBeenCalledTimes(1); // the total only
+  });
+
+  it("counts only the bands it has to skip past on a deep page", async () => {
+    // Page 3 of 10 starts at offset 20; with 4 per band that is inside band 6,
+    // so bands 1-5 are counted and the rest are never counted at all.
+    prismaMock.profile.count.mockResolvedValue(4);
+
+    await svc.search({ page: 3, pageSize: 10 }, VIEWER);
+
+    // One count for the total, plus one per band skipped over.
+    const bandCounts = prismaMock.profile.count.mock.calls.filter(
+      (c: any) => c[0].where.AND !== undefined,
+    );
+    expect(bandCounts).toHaveLength(5);
+    expect(bandCounts.length).toBeLessThan(9);
   });
 
   it("skips whole bands that sit before the requested page", async () => {

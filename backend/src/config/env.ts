@@ -41,6 +41,28 @@ const schema = z.object({
   CORS_ORIGIN: z.string().default("*"),
 
   DATABASE_URL: z.string().url(),
+  /**
+   * Prisma connection-pool size **per process**.
+   *
+   * Prisma's own default is `num_physical_cpus * 2 + 1`, which means the pool
+   * silently changes size when the container gets a different CPU allocation —
+   * the one number you least want inferred from the host. Set it explicitly and
+   * size it against Postgres `max_connections` divided by the number of
+   * processes you run (API replicas + the worker), leaving headroom for
+   * migrations and psql.
+   *
+   * A value already present in `DATABASE_URL` wins, so an operator can still
+   * pass `?connection_limit=` directly.
+   */
+  DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).default(10),
+  /** Seconds to wait for a free connection before giving up (Prisma default 10). */
+  DATABASE_POOL_TIMEOUT: z.coerce.number().int().min(1).default(20),
+  /**
+   * Queries at or above this many milliseconds are logged at `warn`.
+   * Production logged only `warn`/`error`, so there was no way to tell which
+   * query was slow — only that something was.
+   */
+  DATABASE_SLOW_QUERY_MS: z.coerce.number().int().min(1).default(200),
 
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
@@ -72,6 +94,16 @@ const schema = z.object({
   /** Upload scopes stored as Cloudinary `private` assets, reachable only via signed, expiring URLs. */
   CLOUDINARY_PRIVATE_SCOPES: z.string().default("resume,receipt"),
   CLOUDINARY_PRESIGN_TTL: z.coerce.number().default(900),
+
+  /**
+   * How long an uploaded résumé is kept before the retention job deletes the
+   * stored object and stamps `JobApplication.resumeDeletedAt`.
+   *
+   * An env var rather than an admin setting on purpose: this is a data
+   * retention commitment, not a day-to-day knob, and it should change through
+   * a deploy that someone reviews.
+   */
+  RESUME_RETENTION_DAYS: z.coerce.number().int().min(1).default(180),
 
   LOG_LEVEL: z.string().default("info"),
 
@@ -119,6 +151,25 @@ const schema = z.object({
         });
       }
     }
+  }
+
+  /*
+   * `CORS_ORIGIN=*` becomes `origin: true` in app.ts, which reflects whatever
+   * Origin the browser sent — and it is paired with `credentials: true`. That
+   * combination is what allows any site to make authenticated cross-origin
+   * calls on a signed-in member's behalf. It is a reasonable default for local
+   * development and never a safe one in production, so production has to name
+   * its origins.
+   */
+  if (v.NODE_ENV === "production" && v.CORS_ORIGIN.trim() === "*") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["CORS_ORIGIN"],
+      message:
+        "CORS_ORIGIN must list the allowed origins in production — `*` combined with " +
+        "credentials lets any site make authenticated requests as a signed-in member. " +
+        "Set it to a comma-separated list, e.g. https://alumni.adcet.in",
+    });
   }
 
   // Fail fast at boot rather than on the first upload attempt.

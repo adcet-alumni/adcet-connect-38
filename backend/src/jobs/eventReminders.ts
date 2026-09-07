@@ -162,19 +162,3 @@ export const runEventReminders = async (): Promise<EventReminderResult> => {
     nonResponderRemindersSent: totalNonResponder,
   };
 };
-
-/** Wire a daily interval. Returns a stop handle for graceful shutdown. */
-export const startEventReminderCron = (intervalMs = 24 * 60 * 60 * 1000) => {
-  // Run once at startup, then daily
-  runEventReminders().catch((err) =>
-    logger.error({ err }, "event reminder job crashed on initial run"),
-  );
-
-  const handle = setInterval(() => {
-    runEventReminders().catch((err) =>
-      logger.error({ err }, "event reminder job crashed"),
-    );
-  }, intervalMs);
-  handle.unref?.();
-  return () => clearInterval(handle);
-};

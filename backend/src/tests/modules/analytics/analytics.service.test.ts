@@ -134,30 +134,96 @@ describe("analytics.service — adminOverview", () => {
   });
 });
 describe("analytics.service — adminInsights", () => {
-  it("aggregates KPIs, trends and distributions", async () => {
-    prismaMock.user.findMany.mockResolvedValueOnce([{ createdAt: new Date("2024-01-15"), status: "APPROVED" }]);
-    prismaMock.event.findMany.mockResolvedValueOnce([
-      { createdAt: new Date("2024-01-10"), status: "APPROVED", _count: { rsvps: 3 } },
-    ]);
-    prismaMock.job.findMany.mockResolvedValueOnce([
-      { createdAt: new Date("2024-02-01"), status: "APPROVED", isClosed: false },
-    ]);
-    prismaMock.donation.findMany.mockResolvedValueOnce([
-      { createdAt: new Date("2024-02-05"), paidAt: new Date("2024-02-05"), amount: 5000, status: "RECEIVED" },
-    ]);
-    prismaMock.achievement.findMany.mockResolvedValueOnce([{ createdAt: new Date("2024-03-01"), status: "APPROVED" }]);
+  /*
+   * The five trend queries aggregate in Postgres, so what is left to unit-test
+   * here is the transformation: grouped `(month, status, count)` rows into the
+   * KPIs, series and distributions the dashboard draws. Whether the SQL groups
+   * and filters correctly — UTC month boundaries, admins excluded, a donation
+   * bucketed by `paidAt` but filtered by `createdAt`, `= ANY(departments)` — is
+   * only answerable against a real database, and lives in
+   * `tests/modules/analytics/insights.test.ts`.
+   */
+  const stubTrendQueries = () => {
+    prismaMock.$queryRaw
+      // users
+      .mockResolvedValueOnce([
+        { month: "2024-01", status: "APPROVED", count: 3 },
+        { month: "2024-01", status: "PENDING", count: 1 },
+        { month: "2024-02", status: "APPROVED", count: 2 },
+      ])
+      // events
+      .mockResolvedValueOnce([{ month: "2024-01", status: "APPROVED", count: 1 }])
+      // jobs — one open, one closed, in the same month and status
+      .mockResolvedValueOnce([
+        { month: "2024-02", status: "APPROVED", isClosed: false, count: 4 },
+        { month: "2024-02", status: "APPROVED", isClosed: true, count: 2 },
+      ])
+      // donations — a settled batch and an unsettled one
+      .mockResolvedValueOnce([
+        { month: "2024-02", status: "RECEIVED", count: 2, amount: 5000 },
+        { month: "2024-02", status: "PLEDGED", count: 1, amount: 900 },
+      ])
+      // achievements
+      .mockResolvedValueOnce([{ month: "2024-03", status: "APPROVED", count: 1 }]);
+  };
+
+  const stubAggregates = () => {
     prismaMock.profile.count.mockResolvedValueOnce(42);
+    prismaMock.eventRsvp.count.mockResolvedValueOnce(3);
     prismaMock.profile.groupBy
       .mockResolvedValueOnce([{ department: "Computer Science and Engineering", _count: { _all: 10 } }])
       .mockResolvedValueOnce([{ graduationYear: 2020, _count: { _all: 5 } }])
       .mockResolvedValueOnce([{ currentCompany: "TCS", _count: { _all: 7 } }])
       .mockResolvedValueOnce([{ city: "Pune", _count: { _all: 8 } }]);
+  };
+
+  it("sums grouped rows into KPIs", async () => {
+    stubTrendQueries();
+    stubAggregates();
 
     const out = await svc.adminInsights({});
+
     expect(out.kpis.totalAlumni).toBe(42);
-    expect(out.kpis.donationAmount).toBe(5000);
+    // Every status counts as a registration; only APPROVED counts as approved.
+    expect(out.kpis.newRegistrations).toBe(6);
+    expect(out.kpis.newUsersApproved).toBe(5);
+    // One COUNT(*) over the matching events' RSVPs, not a per-event subquery.
     expect(out.kpis.totalRsvps).toBe(3);
-    expect(out.trends.registrations).toHaveLength(1);
+    expect(out.kpis.jobs).toBe(6);
+    expect(out.kpis.openJobs).toBe(4);
+    // Pledges reach neither the count nor the amount.
+    expect(out.kpis.donationsReceived).toBe(2);
+    expect(out.kpis.donationAmount).toBe(5000);
+  });
+
+  it("collapses statuses into one point per month, oldest first", async () => {
+    stubTrendQueries();
+    stubAggregates();
+
+    const out = await svc.adminInsights({});
+
+    expect(out.trends.registrations).toEqual([
+      { month: "2024-01", count: 4 },
+      { month: "2024-02", count: 2 },
+    ]);
+    expect(out.trends.jobs).toEqual([{ month: "2024-02", count: 6 }]);
+    // The donation series carries revenue and counts only what settled.
+    expect(out.trends.donations).toEqual([{ month: "2024-02", count: 2, amount: 5000 }]);
+  });
+
+  it("collapses months into the status distributions", async () => {
+    stubTrendQueries();
+    stubAggregates();
+
+    const out = await svc.adminInsights({});
+
+    expect(out.distributions.jobStatus).toEqual([{ label: "APPROVED", value: 6 }]);
+    expect(out.distributions.donationStatus).toEqual(
+      expect.arrayContaining([
+        { label: "RECEIVED", value: 2 },
+        { label: "PLEDGED", value: 1 },
+      ]),
+    );
     expect(out.distributions.topCities[0]).toEqual({ label: "Pune", value: 8 });
   });
 });

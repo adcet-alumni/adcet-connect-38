@@ -162,6 +162,16 @@ npm run dev            # http://localhost:8080
 
 Open http://localhost:8080 and sign in.
 
+Background jobs (event reminders, résumé retention, geo backfill) do **not**
+run in the API process — every replica of it would run every tick. They live in
+a third process, which you only need if you are working on one of them:
+
+```bash
+# Terminal 3 — background jobs (optional in dev; run exactly one in production)
+cd backend
+npm run worker
+```
+
 ## Seeded Accounts
 
 | Role      | Email                  | Password      |
@@ -242,6 +252,8 @@ bucket/credentials, strong JWT secrets, and your public frontend origin.
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start API in watch mode (loads `.env.development`) |
+| `npm run worker` | Start the background job runner in watch mode. Separate process from the API; run **one** |
+| `npm run start:worker` | Production worker (`node dist/worker.js`) |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm run start` | Run compiled server (uses ambient env) |
 | `npm run prisma:migrate` | Create + apply a dev migration |

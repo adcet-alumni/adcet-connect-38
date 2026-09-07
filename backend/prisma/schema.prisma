@@ -2,12 +2,21 @@
 // Source of truth for DB structure. Keep in sync with backend/openapi.yaml.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // `postgresqlExtensions` lets the `pg_trgm` extension and the GIN indexes
+  // that depend on it be declared here rather than hand-written into a
+  // migration. That keeps this file the single source of truth: an index
+  // created only in SQL reads as drift the next time anyone runs
+  // `prisma migrate dev`, and would eventually be dropped by it.
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // Trigram matching, so `contains` searches can use an index. See the GIN
+  // indexes on User, Profile and Post.
+  extensions = [pg_trgm]
 }
 
 // =====================================================================
@@ -124,6 +133,12 @@ model User {
   collaborationReviews  CollaborationRequest[] @relation("CollaborationReviewer")
 
   @@index([status])
+  /// Trigram indexes. Both columns are reachable by a `contains` search,
+  /// which Prisma compiles to `ILIKE '%term%'` — a leading wildcard, which no
+  /// B-tree can serve. GIN + `gin_trgm_ops` is what makes that pattern an
+  /// index probe rather than a scan of the whole table.
+  @@index([firstName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([lastName(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 /// Roles live in a separate table to prevent privilege escalation via profile updates.
@@ -245,11 +260,52 @@ model Profile {
   @@index([city])
   @@index([currentCompany])
   @@index([graduationYear])
+  /// Trigram index. Every one of these columns is reachable by a
+  /// `contains` search, which Prisma compiles to `ILIKE '%term%'` — a
+  /// leading wildcard, which no B-tree can serve. GIN + `gin_trgm_ops`
+  /// is what makes that pattern an index probe instead of a scan.
+  @@index([currentCompany(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_currentCompany_trgm_idx")
+  @@index([city(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_city_trgm_idx")
   /// The directory's default ordering groups by "same department as the
   /// viewer", then walks outwards from their batch — both columns, together.
   @@index([department, graduationYear])
   @@index([chapterId])
   @@index([locationId])
+}
+
+/// One row per background job, holding a **time-limited lease** on the right to
+/// run it.
+///
+/// Background jobs used to start inside the web process, so every API replica
+/// ran every tick: three replicas meant every alumnus got three copies of each
+/// event reminder, and Nominatim got three times the request rate — enough to
+/// breach its one-request-per-second policy and have the deployment's IP
+/// blocked. Jobs now live in `worker.ts`, and this table is what makes running
+/// two workers (a rolling deploy, an accidental scale-up) safe rather than
+/// merely unlikely.
+///
+/// A lease, not a lock, for two reasons Postgres forces on us:
+///
+/// 1. `pg_try_advisory_lock` is held by a **connection**, and Prisma hands out
+///    pooled ones — the unlock can easily land on a different connection than
+///    the lock, leaking it until the pool recycles. The transaction-scoped
+///    variant releases at commit, which would mean holding a transaction open
+///    for the whole of a mail run.
+/// 2. A worker that is SIGKILLed mid-run cannot release anything. An expiry is
+///    what lets the next tick take over instead of the job wedging forever.
+///
+/// The claim is a single `INSERT … ON CONFLICT DO UPDATE … WHERE` statement, so
+/// it is atomic without a transaction: exactly one caller sees a row affected.
+model JobLease {
+  /// Stable job identifier, e.g. `event-reminders`. See `JOB_LEASES`.
+  name        String    @id
+  /// When the current holder's claim expires. NULL means nobody holds it.
+  lockedUntil DateTime?
+  /// Which process holds it — for debugging a stuck lease, never for logic.
+  lockedBy    String?
+  /// When the job last finished, successfully or not.
+  lastRunAt   DateTime?
+  updatedAt   DateTime  @updatedAt
 }
 
 /// Where a city is, resolved once and reused by every profile in it.
@@ -550,6 +606,12 @@ model JobApplication {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([jobId, userId])
+  /// "My applications" (`GET /jobs/me/applications`) filters on `userId`
+  /// alone. The unique above is led by `jobId`, so it cannot serve that —
+  /// a B-tree is only usable from its leading column inwards. Reading one
+  /// alumnus's applications was a sequential scan of every application on
+  /// the platform.
+  @@index([userId])
 }
 
 // =====================================================================
@@ -680,7 +742,15 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
+  /// The unread badge: `count({ where: { userId, readAt: null } })`, and the
+  /// "mark all read" update that shares its predicate.
   @@index([userId, readAt])
+  /// The list itself: `where: { userId }, orderBy: { createdAt: desc }`.
+  /// `[userId, readAt]` filters this correctly but leaves Postgres to sort the
+  /// match set in memory, so both indexes stay — they serve different halves
+  /// of the same page load, and dropping either puts one of them back on a
+  /// scan or a sort.
+  @@index([userId, createdAt])
 }
 
 model AuditLog {
@@ -694,6 +764,11 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([actorId])
+  /// Both readers of this table order by `createdAt desc` and nothing else —
+  /// the paginated audit page and the dashboard's "latest 8". This is the
+  /// fastest-growing table in the schema, and without this index every one of
+  /// those views sorted all of it.
+  @@index([createdAt])
 }
 
 // =====================================================================
@@ -810,6 +885,11 @@ model Post {
 
   @@index([createdAt])
   @@index([authorId, createdAt])
+  /// Trigram index. Every one of these columns is reachable by a
+  /// `contains` search, which Prisma compiles to `ILIKE '%term%'` — a
+  /// leading wildcard, which no B-tree can serve. GIN + `gin_trgm_ops`
+  /// is what makes that pattern an index probe instead of a scan.
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 /// Attached image/video. Max 2 images OR 1 video per post (enforced in the

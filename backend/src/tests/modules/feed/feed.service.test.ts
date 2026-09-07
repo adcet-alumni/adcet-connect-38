@@ -16,6 +16,7 @@ jest.unstable_mockModule("../../../storage/index.js", () => ({
 }));
 
 const svc = await import("../../../modules/feed/feed.service.js");
+const { invalidateSettings } = await import("../../../lib/settings.js");
 
 const ALUMNI = { sub: "u-1", roles: ["ALUMNI"] as any };
 const OTHER = { sub: "u-2", roles: ["ALUMNI"] as any };
@@ -38,6 +39,9 @@ beforeEach(() => {
   );
   notifyMock.mockClear();
   deleteObject.mockClear();
+  // The settings registry caches reads for a few seconds; without this a limit
+  // stubbed by one test would leak into the next.
+  invalidateSettings();
 });
 
 describe("modules/feed/service", () => {
@@ -46,9 +50,8 @@ describe("modules/feed/service", () => {
       rawPost({ likes: [{ id: "l-1" }] }),
       rawPost({ id: "p-2", likes: [] }),
     ]);
-    prismaMock.post.count.mockResolvedValueOnce(2);
 
-    const res = await svc.list({ page: 1, pageSize: 10 } as any, ALUMNI);
+    const res = await svc.list({ limit: 10 } as any, ALUMNI);
 
     expect(res.items[0]).toMatchObject({ likeCount: 3, commentCount: 2, likedByMe: true });
     expect(res.items[1].likedByMe).toBe(false);
@@ -57,10 +60,100 @@ describe("modules/feed/service", () => {
     expect(args.include.likes.where).toEqual({ userId: "u-1" });
   });
 
+  describe("cursor pagination", () => {
+    /*
+     * The feed is an infinite scroll, so it seeks past a row rather than
+     * counting rows to skip. That is not only cheaper than OFFSET — it is the
+     * only correct option while people are posting: an offset shifts by one
+     * every time a post is published, so a reader meets the same post again at
+     * the top of the next page.
+     */
+    it("never issues a COUNT — an infinite scroll has no total to show", async () => {
+      prismaMock.post.findMany.mockResolvedValueOnce([rawPost()]);
+
+      const res = await svc.list({ limit: 10 } as any, ALUMNI);
+
+      expect(prismaMock.post.count).not.toHaveBeenCalled();
+      expect(res).not.toHaveProperty("pagination");
+    });
+
+    it("reads one row beyond the page to learn whether another exists", async () => {
+      // Three rows back for a page of two: the third is the probe, not content.
+      prismaMock.post.findMany.mockResolvedValueOnce([
+        rawPost({ id: "p-1" }),
+        rawPost({ id: "p-2" }),
+        rawPost({ id: "p-3" }),
+      ]);
+
+      const res = await svc.list({ limit: 2 } as any, ALUMNI);
+
+      expect((prismaMock.post.findMany.mock.calls[0][0] as any).take).toBe(3);
+      expect(res.items.map((i) => i.id)).toEqual(["p-1", "p-2"]);
+      // The cursor is the last row actually served, never the probe.
+      expect(res.nextCursor).toBe("p-2");
+    });
+
+    it("reports the end of the feed as a null cursor", async () => {
+      prismaMock.post.findMany.mockResolvedValueOnce([rawPost({ id: "p-1" })]);
+
+      const res = await svc.list({ limit: 2 } as any, ALUMNI);
+
+      expect(res.items).toHaveLength(1);
+      expect(res.nextCursor).toBeNull();
+    });
+
+    it("starts at the top when no cursor is given, without looking one up", async () => {
+      prismaMock.post.findMany.mockResolvedValueOnce([]);
+
+      await svc.list({ limit: 10 } as any, ALUMNI);
+
+      expect(prismaMock.post.findUnique).not.toHaveBeenCalled();
+      const args = prismaMock.post.findMany.mock.calls[0][0] as any;
+      expect(args.where.OR).toBeUndefined();
+      expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+    });
+
+    it("seeks strictly past the cursor row, breaking ties on id", async () => {
+      const at = new Date("2026-03-01T10:00:00Z");
+      prismaMock.post.findUnique.mockResolvedValueOnce({ id: "p-5", createdAt: at });
+      prismaMock.post.findMany.mockResolvedValueOnce([]);
+
+      await svc.list({ limit: 10, cursor: "p-5" } as any, ALUMNI);
+
+      const where = (prismaMock.post.findMany.mock.calls[0][0] as any).where;
+      // Two posts can share a millisecond; without the id tiebreaker such a
+      // pair could straddle a page boundary and one of them be skipped.
+      expect(where.OR).toEqual([
+        { createdAt: { lt: at } },
+        { createdAt: at, id: { lt: "p-5" } },
+      ]);
+    });
+
+    it("keeps the filters alongside the cursor clause", async () => {
+      prismaMock.post.findUnique.mockResolvedValueOnce({ id: "p-5", createdAt: new Date() });
+      prismaMock.post.findMany.mockResolvedValueOnce([]);
+
+      await svc.list({ limit: 10, cursor: "p-5", authorId: "u-9", q: "trip" } as any, ALUMNI);
+
+      const where = (prismaMock.post.findMany.mock.calls[0][0] as any).where;
+      expect(where.authorId).toBe("u-9");
+      expect(where.content).toEqual({ contains: "trip", mode: "insensitive" });
+      expect(where.OR).toBeDefined();
+    });
+
+    it("404s on a cursor whose post is gone rather than silently restarting", async () => {
+      prismaMock.post.findUnique.mockResolvedValueOnce(null);
+
+      await expect(svc.list({ limit: 10, cursor: "p-gone" } as any, ALUMNI))
+        .rejects.toMatchObject({ status: 404 });
+      expect(prismaMock.post.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   /** Let the caller through the monthly quota check with `used` slots spent. */
   const allowPost = (used = 0, limit?: number) => {
-    prismaMock.appSetting.findUnique.mockResolvedValueOnce(
-      limit === undefined ? null : { key: "feedPostsPerMonth", value: String(limit) },
+    prismaMock.appSetting.findMany.mockResolvedValueOnce(
+      limit === undefined ? [] : [{ key: "feedPostsPerMonth", value: String(limit) }],
     );
     prismaMock.postQuotaUsage.findUnique.mockResolvedValueOnce(used ? { count: used } : null);
   };
@@ -113,7 +206,7 @@ describe("modules/feed/service", () => {
       expect(quota).toMatchObject({ exempt: true, limit: null, remaining: null });
       // No limit lookup and no usage read for an exempt caller.
       expect(prismaMock.postQuotaUsage.findUnique).not.toHaveBeenCalled();
-      expect(prismaMock.appSetting.findUnique).not.toHaveBeenCalled();
+      expect(prismaMock.appSetting.findMany).not.toHaveBeenCalled();
     });
 
     it("reports zero remaining rather than a negative once over the limit", async () => {
@@ -216,18 +309,62 @@ describe("modules/feed/service", () => {
     expect(prismaMock.post.delete).not.toHaveBeenCalled();
   });
 
-  it("toggleLike adds a like when absent and removes it when present", async () => {
-    prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+  describe("toggleLike", () => {
+    /*
+     * The flip is a single `deleteMany` — a count rather than a throw when
+     * there is no row — so "was it liked" and "unlike it" are one decision
+     * instead of a read followed by a branch. Both branches run inside one
+     * transaction, so two taps in flight cannot both see "not liked" and race
+     * each other into the unique constraint.
+     */
+    it("likes a post that the caller had not liked", async () => {
+      prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+      prismaMock.postLike.deleteMany.mockResolvedValueOnce({ count: 0 });
+      prismaMock.postLike.count.mockResolvedValueOnce(1);
 
-    prismaMock.postLike.findUnique.mockResolvedValueOnce(null);
-    prismaMock.postLike.count.mockResolvedValueOnce(1);
-    await expect(svc.toggleLike(ALUMNI, "p-1")).resolves.toEqual({ liked: true, likeCount: 1 });
-    expect(prismaMock.postLike.create).toHaveBeenCalled();
+      await expect(svc.toggleLike(ALUMNI, "p-1")).resolves.toEqual({ liked: true, likeCount: 1 });
+      expect(prismaMock.postLike.create).toHaveBeenCalledWith({
+        data: { postId: "p-1", userId: "u-1" },
+      });
+    });
 
-    prismaMock.postLike.findUnique.mockResolvedValueOnce({ id: "l-1" });
-    prismaMock.postLike.count.mockResolvedValueOnce(0);
-    await expect(svc.toggleLike(ALUMNI, "p-1")).resolves.toEqual({ liked: false, likeCount: 0 });
-    expect(prismaMock.postLike.delete).toHaveBeenCalledWith({ where: { id: "l-1" } });
+    it("unlikes a post the caller had already liked", async () => {
+      prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+      prismaMock.postLike.deleteMany.mockResolvedValueOnce({ count: 1 });
+      prismaMock.postLike.count.mockResolvedValueOnce(0);
+
+      await expect(svc.toggleLike(ALUMNI, "p-1")).resolves.toEqual({ liked: false, likeCount: 0 });
+      expect(prismaMock.postLike.create).not.toHaveBeenCalled();
+      expect(prismaMock.postLike.deleteMany).toHaveBeenCalledWith({
+        where: { postId: "p-1", userId: "u-1" },
+      });
+    });
+
+    it("only ever removes the caller's own like", async () => {
+      prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+      prismaMock.postLike.deleteMany.mockResolvedValueOnce({ count: 1 });
+      prismaMock.postLike.count.mockResolvedValueOnce(0);
+
+      await svc.toggleLike(OTHER, "p-1");
+
+      const where = (prismaMock.postLike.deleteMany.mock.calls[0][0] as any).where;
+      expect(where.userId).toBe("u-2");
+    });
+
+    it("404s on a post that does not exist", async () => {
+      prismaMock.post.findUnique.mockResolvedValueOnce(null);
+      await expect(svc.toggleLike(ALUMNI, "gone")).rejects.toMatchObject({ status: 404 });
+      expect(prismaMock.postLike.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("runs the flip and the recount in one transaction", async () => {
+      prismaMock.post.findUnique.mockResolvedValue({ id: "p-1" });
+      prismaMock.postLike.deleteMany.mockResolvedValueOnce({ count: 0 });
+      prismaMock.postLike.count.mockResolvedValueOnce(1);
+
+      await svc.toggleLike(ALUMNI, "p-1");
+      expect(prismaMock.$transaction).toHaveBeenCalled();
+    });
   });
 
   it("addComment notifies the post author but not when they comment on themselves", async () => {

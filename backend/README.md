@@ -10,7 +10,8 @@ backend/
 ├── docker-compose.yml        # Postgres + MinIO
 ├── .env.example
 └── src/
-    ├── server.ts             # Boot + graceful shutdown
+    ├── server.ts             # API entrypoint — boot + graceful shutdown
+    ├── worker.ts             # Background job entrypoint (run exactly one)
     ├── app.ts                # Express composition
     ├── config/               # env, constants, openapi loader
     ├── lib/                  # prisma, logger, jwt, errors, password, pagination, asyncHandler

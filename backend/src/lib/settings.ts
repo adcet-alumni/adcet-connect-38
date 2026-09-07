@@ -36,24 +36,50 @@ export const SETTING_KEYS = Object.keys(SETTINGS) as SettingKey[];
 export const isSettingKey = (key: string): key is SettingKey =>
   Object.prototype.hasOwnProperty.call(SETTINGS, key);
 
-/** Read one setting, falling back to its default when unset or unparseable. */
-export const getSetting = async <K extends SettingKey>(key: K): Promise<SettingValue<K>> => {
-  const row = await prisma.appSetting.findUnique({ where: { key } });
-  if (!row) return SETTINGS[key].default as SettingValue<K>;
-  return parseOrDefault(key, row.value);
+/*
+ * A short read-through cache.
+ *
+ * `getSetting` ran a query every time it was called, including on every feed
+ * post — a table of at most a handful of rows, which an admin changes a few
+ * times a year, read on a write path. The TTL is deliberately short so a
+ * setting changed on one instance takes effect everywhere within seconds
+ * without any cross-process coordination; `setSettings` clears the local copy
+ * immediately, so the admin who made the change sees it at once.
+ *
+ * This is per-process state, like the geo and top-donors caches: N instances
+ * hold N copies, and the bound on staleness is the TTL rather than the write.
+ * That is the whole reason the window is seconds and not minutes.
+ */
+const CACHE_TTL_MS = 10_000;
+let cached: { at: number; values: Record<SettingKey, unknown> } | null = null;
+
+/** Drop the cached copy — called after any write. */
+export const invalidateSettings = () => {
+  cached = null;
 };
 
-/** Read every setting as a plain object — what the admin settings screen loads. */
-export const getAllSettings = async (): Promise<Record<SettingKey, unknown>> => {
+const readAll = async (): Promise<Record<SettingKey, unknown>> => {
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.values;
   const rows = await prisma.appSetting.findMany({ where: { key: { in: SETTING_KEYS } } });
   const stored = new Map(rows.map((r) => [r.key, r.value]));
-  return Object.fromEntries(
+  const values = Object.fromEntries(
     SETTING_KEYS.map((key) => [
       key,
       stored.has(key) ? parseOrDefault(key, stored.get(key)!) : SETTINGS[key].default,
     ]),
   ) as Record<SettingKey, unknown>;
+  // Only a successful read is cached, so an outage retries rather than
+  // pinning every instance to the defaults for the next ten seconds.
+  cached = { at: Date.now(), values };
+  return values;
 };
+
+/** Read one setting, falling back to its default when unset or unparseable. */
+export const getSetting = async <K extends SettingKey>(key: K): Promise<SettingValue<K>> =>
+  (await readAll())[key] as SettingValue<K>;
+
+/** Read every setting as a plain object — what the admin settings screen loads. */
+export const getAllSettings = (): Promise<Record<SettingKey, unknown>> => readAll();
 
 /**
  * Write settings. Values are validated against the registry first, so an
@@ -80,6 +106,9 @@ export const setSettings = async (
       }),
     ),
   );
+  // Before the read below, so the admin who just saved sees their own change
+  // rather than the copy cached a moment earlier.
+  invalidateSettings();
   return getAllSettings();
 };
 

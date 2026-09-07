@@ -58,6 +58,17 @@ export interface Paginated<T> {
   pagination: { total: number; page: number; pageSize: number; totalPages: number };
 }
 
+/**
+ * The feed's own page shape. It is a cursor-paginated infinite scroll, so it
+ * carries the id to resume from rather than a page number and a total — a
+ * scroll never renders "of 47,213", and computing that total cost as much as
+ * the page itself. `nextCursor: null` means there is nothing after this page.
+ */
+export interface FeedPageResponse {
+  items: Post[];
+  nextCursor: string | null;
+}
+
 export const authorName = (a?: FeedAuthor | null) =>
   a ? `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || "Alumni" : "Alumni";
 

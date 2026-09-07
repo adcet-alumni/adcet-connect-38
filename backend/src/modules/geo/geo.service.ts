@@ -35,26 +35,49 @@ export const companies = async () => {
     .sort((a, b) => b.count - a.count);
 };
 
-/** City × Company breakdown — used by the Admin Geo Map side panel. */
+/**
+ * City × Company breakdown — used by the Admin Geo Map side panel.
+ *
+ * Grouped in Postgres. This used to `findMany` every approved profile that had
+ * both a city and an employer and count them into a two-level `Map` in Node —
+ * 50,000 rows over the wire to produce a few hundred. `GROUP BY city,
+ * "currentCompany"` returns the answer's own cardinality instead: one row per
+ * pair that actually appears.
+ */
 export const cityCompanyBreakdown = async () => {
-  const profiles = await prisma.profile.findMany({
+  const rows = await prisma.profile.groupBy({
+    by: ["city", "currentCompany"],
     where: { city: { not: null }, currentCompany: { not: null }, user: { status: "APPROVED" } },
-    select: { city: true, currentCompany: true },
+    _count: { _all: true },
   });
-  const map = new Map<string, Map<string, number>>();
-  for (const p of profiles) {
-    if (!p.city || !p.currentCompany) continue;
-    if (!map.has(p.city)) map.set(p.city, new Map());
-    const inner = map.get(p.city)!;
-    inner.set(p.currentCompany, (inner.get(p.currentCompany) ?? 0) + 1);
+
+  const byCity = new Map<string, { company: string; count: number }[]>();
+  for (const r of rows) {
+    // The `where` excludes nulls, but `by` still types them as nullable.
+    if (!r.city || !r.currentCompany) continue;
+    const companies = byCity.get(r.city) ?? [];
+    companies.push({ company: r.currentCompany, count: r._count._all });
+    byCity.set(r.city, companies);
   }
-  return Array.from(map.entries()).map(([city, comps]) => ({
-    city,
-    totalAlumni: Array.from(comps.values()).reduce((a, b) => a + b, 0),
-    companies: Array.from(comps.entries())
-      .map(([company, count]) => ({ company, count }))
-      .sort((a, b) => b.count - a.count),
-  }));
+
+  /*
+   * Ties are broken by name so the panel renders the same order every time.
+   * Neither this nor the previous implementation ordered its source rows, so
+   * two companies with equal headcount could swap places between requests —
+   * `sort` is stable, which only preserved whatever arbitrary order Postgres
+   * happened to return. The city order is likewise pinned, though
+   * `AdminGeoMapPage` re-sorts that end anyway.
+   */
+  const byHeadcountThenName = <T extends { count: number; company: string }>(a: T, b: T) =>
+    b.count - a.count || a.company.localeCompare(b.company);
+
+  return Array.from(byCity.entries())
+    .map(([city, companies]) => ({
+      city,
+      totalAlumni: companies.reduce((sum, c) => sum + c.count, 0),
+      companies: companies.sort(byHeadcountThenName),
+    }))
+    .sort((a, b) => b.totalAlumni - a.totalAlumni || a.city.localeCompare(b.city));
 };
 
 // === Alumni map ============================================================

@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { PostComposer } from "@/components/feed/PostComposer";
 import { PostCard } from "@/components/feed/PostCard";
 import { api } from "@/lib/api";
-import type { Paginated, Post } from "@/lib/feed";
+import type { FeedPageResponse } from "@/lib/feed";
 
 const PAGE_SIZE = 10;
 
@@ -35,13 +35,19 @@ const FeedSkeleton = () => (
  * immediately (no admin approval); the whole route is approved-members-only.
  */
 const FeedPage = () => {
+  /*
+   * Cursor-paginated, not page-numbered. An offset counts rows, so a post
+   * published while someone is scrolling shifts every later row down a place
+   * and the reader meets the same post again at the top of the next page. The
+   * cursor is the id of the last post already shown, so it cannot skip or
+   * repeat one. `nextCursor: null` means the end.
+   */
   const feed = useInfiniteQuery({
     queryKey: ["feed", "list"],
-    initialPageParam: 1,
+    initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
-      api.get<Paginated<Post>>("/feed", { page: pageParam, pageSize: PAGE_SIZE }),
-    getNextPageParam: (last) =>
-      last.pagination.page < last.pagination.totalPages ? last.pagination.page + 1 : undefined,
+      api.get<FeedPageResponse>("/feed", { cursor: pageParam, limit: PAGE_SIZE }),
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 
   const posts = feed.data?.pages.flatMap((p) => p.items) ?? [];

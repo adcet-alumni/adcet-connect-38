@@ -1,0 +1,23 @@
+# Security headers for the static SPA, in Netlify's `_headers` format.
+#
+# The Content-Security-Policy itself is injected into index.html at build time
+# (see src/lib/csp.ts), because it has to name the API and storage origins for
+# this particular deployment. What is here instead is the set of headers a
+# <meta> tag cannot deliver at all.
+/*
+  # Ignored inside a meta CSP, so it has to be a real header. Nothing in this
+  # app is meant to be framed; clickjacking a "Donate" button is the concrete
+  # risk.
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  # Do not leak the path a member came from — /dashboard/achievements/<uuid>
+  # is not something to hand to every external link they click.
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  # No page here needs a camera, a microphone or a location fix; the alumni map
+  # plots city centroids from the server, never the viewer's own position.
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+
+# Hashed filenames, so these can be cached indefinitely.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
