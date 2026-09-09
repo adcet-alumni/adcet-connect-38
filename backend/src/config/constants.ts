@@ -54,6 +54,7 @@ export const UPLOAD_SCOPES = [
   "avatar", "banner", "event", "achievement", "receipt", "resume",
   "event-attachment", "job-attachment", "email-attachment", "post",
   "newsletter", "newsletter-cover", "gallery", "collaboration",
+  "donation-proof", "donation-qr",
 ] as const;
 export type UploadScope = (typeof UPLOAD_SCOPES)[number];
 
@@ -101,6 +102,9 @@ export const UPLOAD_MAX_BYTES: Record<UploadScope, number> = {
   "newsletter-cover": 10 * MB,
   gallery: 10 * MB,
   collaboration: 10 * MB,
+  // A screenshot off a UPI app, and the payee's QR image.
+  "donation-proof": 10 * MB,
+  "donation-qr": 5 * MB,
 };
 
 /**
@@ -220,3 +224,29 @@ export const DEFAULT_CHAPTERS = [
 
 export const THEMES = ["default", "ocean", "sunset", "forest", "royal"] as const;
 export type ThemeName = (typeof THEMES)[number];
+/**
+ * How a donor says they moved the money — the two ways the alumni office
+ * publishes, and nothing else. The page offers a UPI QR and a bank account, so
+ * offering NEFT, IMPS, RTGS, cash and cheque as separate answers only asked the
+ * donor to classify a transfer the office reconciles the same way regardless.
+ *
+ * Not a gateway's method list: nothing here is observed, it is what the donor
+ * said, and an admin confirms it against the bank statement before the gift
+ * counts. `Donation.paymentMethod` is a plain string column, so rows written
+ * when the list was longer still read back correctly.
+ *
+ * Mirrored by `DONATION_PAYMENT_METHODS` in `src/lib/donations.ts`.
+ */
+export const DONATION_PAYMENT_METHODS = ["UPI", "BANK_TRANSFER"] as const;
+export type DonationPaymentMethod = (typeof DONATION_PAYMENT_METHODS)[number];
+
+/**
+ * How long a rejected donation stays readable before `jobs/donationPurge.ts`
+ * deletes it and its proof file.
+ *
+ * A rejection is not a correction: the donor is told why, and may need to come
+ * back with the right reference. The row is archived rather than removed so
+ * that conversation has something to point at — and removed on a clock so the
+ * ledger doesn't accumulate claims the office already dismissed.
+ */
+export const DONATION_ARCHIVE_RETENTION_DAYS = 30;

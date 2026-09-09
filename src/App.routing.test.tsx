@@ -17,7 +17,6 @@ vi.mock("@/lib/api", () => ({
     post: vi.fn().mockResolvedValue({}),
     patch: vi.fn().mockResolvedValue({}),
   },
-  apiUrl: (p: string) => p,
   tokenStore: { get: () => null, set: vi.fn(), clear: vi.fn() },
   shouldRetryQuery: () => false,
   ApiError: class extends Error {},

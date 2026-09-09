@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, User, Users, Briefcase, Calendar, Heart, Trophy, MapPin, BarChart3,
@@ -18,6 +18,7 @@ import { api } from "@/lib/api";
 import NotificationsBell from "@/components/NotificationsBell";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
 import SidebarNavGroup from "@/components/SidebarNavGroup";
+import RouteContent from "@/components/RouteContent";
 import { COLLABORATION_KIND_LIST } from "@/lib/collaboration";
 
 const mainNav = [
@@ -363,7 +364,7 @@ const DashboardLayout = () => {
         {/* Main Content */}
         <main className="flex-1 overflow-auto">
           <div className="p-4 md:p-6 max-w-7xl mx-auto">
-            <Outlet />
+            <RouteContent preload="/dashboard" />
           </div>
         </main>
       </div>

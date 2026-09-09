@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, UserCheck, Calendar, Briefcase, Trophy, Heart, BarChart3,
@@ -19,6 +19,7 @@ import { api } from "@/lib/api";
 import NotificationsBell from "@/components/NotificationsBell";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
 import SidebarNavGroup from "@/components/SidebarNavGroup";
+import RouteContent from "@/components/RouteContent";
 import { COLLABORATION_KIND_LIST, type CollaborationType } from "@/lib/collaboration";
 
 interface AdminOverview {
@@ -250,7 +251,7 @@ const AdminLayout = () => {
         {/* Main Content */}
         <main className="flex-1 overflow-auto">
           <div className="p-4 md:p-6 max-w-7xl mx-auto">
-            <Outlet />
+            <RouteContent preload="/admin" />
           </div>
         </main>
       </div>

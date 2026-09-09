@@ -40,7 +40,6 @@ const MODELS = [
   "refreshToken",
   "passwordResetToken",
   "emailVerificationOtp",
-  "oAuthAccount",
   "event",
   "eventRsvp",
   "job",

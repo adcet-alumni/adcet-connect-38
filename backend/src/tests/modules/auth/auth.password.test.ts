@@ -29,7 +29,7 @@ describe("auth.service — forgotPassword", () => {
     expect(prismaMock.passwordResetToken.create).not.toHaveBeenCalled();
   });
 
-  it("does nothing for an OAuth-only account (no password)", async () => {
+  it("does nothing for an account with no password", async () => {
     prismaMock.user.findUnique.mockResolvedValueOnce({ id: "u-1", email: "a@x.com", passwordHash: null });
     await forgotPassword("a@x.com");
     expect(prismaMock.passwordResetToken.create).not.toHaveBeenCalled();
@@ -77,7 +77,7 @@ describe("auth.service — resetPassword", () => {
 });
 
 describe("auth.service — changePassword", () => {
-  it("rejects when the account has no password (OAuth-only)", async () => {
+  it("rejects when the account has no password", async () => {
     prismaMock.user.findUnique.mockResolvedValueOnce({ id: "u-1", passwordHash: null });
     await expect(changePassword("u-1", "x", "NewPass123")).rejects.toMatchObject({ status: 400 });
   });

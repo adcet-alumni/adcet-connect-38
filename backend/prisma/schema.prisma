@@ -76,9 +76,20 @@ enum PostReportStatus {
   DISMISSED
 }
 
+/// Lifecycle of a donation under the manual (QR / bank transfer) flow.
+///
+/// PLEDGED   the donor has paid off-portal and submitted the verification form;
+///           the alumni office has not yet matched it against a bank record.
+/// RECEIVED  an admin cross-verified it. The receipt is generated and emailed
+///           at this moment, and only these rows count as money.
+/// REJECTED  an admin could not match it. The row is archived (`archivedAt`)
+///           and purged by `jobs/donationPurge.ts` after
+///           `DONATION_ARCHIVE_RETENTION_DAYS`.
+/// CANCELLED withdrawn before a decision — kept indefinitely, unlike REJECTED.
 enum DonationStatus {
   PLEDGED
   RECEIVED
+  REJECTED
   CANCELLED
 }
 
@@ -89,7 +100,7 @@ enum DonationStatus {
 model User {
   id              String         @id @default(uuid())
   email           String         @unique
-  passwordHash    String? // null when only OAuth login
+  passwordHash    String? // null only for legacy accounts; login refuses them
   firstName       String
   lastName        String
   status          ApprovalStatus @default(PENDING)
@@ -104,13 +115,13 @@ model User {
   preferences         UserPreferences?
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
-  oauthAccounts       OAuthAccount[]
 
   // Authored content
   eventsCreated         Event[]               @relation("EventCreator")
   jobsCreated           Job[]                 @relation("JobCreator")
   achievements          Achievement[]
   donations             Donation[]
+  donationsVerified     Donation[]            @relation("DonationVerifier")
   donationLedgerEntries DonationLedgerEntry[]
   rsvps                 EventRsvp[]
   jobApplications       JobApplication[]
@@ -149,19 +160,6 @@ model UserRole {
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, role])
-}
-
-model OAuthAccount {
-  id           String   @id @default(uuid())
-  userId       String
-  provider     String // "linkedin" | "github"
-  providerId   String
-  accessToken  String?
-  refreshToken String?
-  createdAt    DateTime @default(now())
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerId])
 }
 
 model RefreshToken {
@@ -669,6 +667,9 @@ model DonationCampaign {
   donations Donation[]
 }
 
+/// A gift, declared by the donor after paying off-portal (UPI QR or bank
+/// transfer) and confirmed by an admin against the bank statement. There is no
+/// payment gateway: nothing here is trusted until `verifiedAt` is stamped.
 model Donation {
   id          String         @id @default(uuid())
   campaignId  String?
@@ -677,6 +678,7 @@ model Donation {
   currency    String         @default("INR")
   message     String?
   status      DonationStatus @default(PLEDGED)
+  /// Screenshot / PDF of the payment the donor attached. Private scope.
   proofKey    String?
   receiptKey  String?
   isAnonymous Boolean        @default(false)
@@ -687,24 +689,34 @@ model Donation {
   donorName  String?
   donorEmail String?
 
-  // Razorpay payment tracking (backend-verified, independent of the frontend).
-  provider          String?   @default("razorpay")
-  razorpayOrderId   String?   @unique
-  razorpayPaymentId String?
-  razorpaySignature String?
-  paymentMethod     String? // upi | card | netbanking | wallet | ...
-  receiptNo         String?   @unique
-  paidAt            DateTime?
-  receiptSentAt     DateTime?
+  /// The bank/UPI transaction reference (UTR) the donor typed, and the one
+  /// thing the admin matches against the statement. Unique, so the same
+  /// transaction cannot be claimed twice.
+  reference     String?   @unique
+  /// UPI | BANK_TRANSFER. A plain string, not an enum: rows written when the
+  /// list was longer (NEFT, IMPS, CASH, ...) still have to read back.
+  paymentMethod String?
+  /// When the donor says the money left their account.
+  paidAt        DateTime?
+  receiptNo     String?   @unique
+  receiptSentAt DateTime?
+
+  // Admin decision.
+  verifiedAt      DateTime?
+  verifiedById    String?
+  rejectionReason String?
+  /// Stamped when an admin rejects. The purge job sweeps on this column.
+  archivedAt      DateTime?
 
   campaign      DonationCampaign?     @relation(fields: [campaignId], references: [id])
   user          User                  @relation(fields: [userId], references: [id])
+  verifiedBy    User?                 @relation("DonationVerifier", fields: [verifiedById], references: [id])
   ledgerEntries DonationLedgerEntry[]
 
   @@index([campaignId])
   @@index([userId])
   @@index([status, createdAt])
-  @@index([razorpayPaymentId])
+  @@index([status, archivedAt])
 }
 
 model DonationLedgerEntry {

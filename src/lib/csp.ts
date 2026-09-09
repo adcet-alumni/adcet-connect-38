@@ -19,9 +19,6 @@
  *
  * **What each third party is for.** Every entry below is reachable from code in
  * this repository; nothing is here speculatively:
- * - `checkout.razorpay.com` — the payment widget's script and its iframe
- *   (`DonationsPage`), plus `api.razorpay.com` and `lumberjack.razorpay.com`,
- *   which it calls itself.
  * - `*.basemaps.cartocdn.com` — the map tiles in `AlumniMap`.
  * - the storage origin — avatars, post media, gallery photos, newsletters.
  */
@@ -55,8 +52,6 @@ export interface CspInput {
  */
 const DEFAULT_API_BASE_URL = "http://localhost:4000/api/v1";
 
-const RAZORPAY_SCRIPT = "https://checkout.razorpay.com";
-const RAZORPAY_API = ["https://api.razorpay.com", "https://lumberjack.razorpay.com"];
 const CARTO_TILES = "https://*.basemaps.cartocdn.com";
 const CLOUDINARY = "https://res.cloudinary.com";
 
@@ -74,7 +69,7 @@ export const buildCsp = (input: CspInput): string => {
      * doing the actual work, and Vite emits only external module scripts, so
      * nothing in the app needs either.
      */
-    "script-src": ["'self'", RAZORPAY_SCRIPT],
+    "script-src": ["'self'"],
     /*
      * 'unsafe-inline' is unavoidable for styles: Tailwind is fine, but Leaflet
      * positions every tile and marker with an inline `style` attribute, and
@@ -85,8 +80,13 @@ export const buildCsp = (input: CspInput): string => {
     "img-src": ["'self'", "data:", "blob:", CARTO_TILES, ...media],
     "media-src": ["'self'", "blob:", ...media],
     "font-src": ["'self'", "data:"],
-    "connect-src": ["'self'", ...(api ? [api] : []), ...media, ...RAZORPAY_API],
-    "frame-src": [RAZORPAY_SCRIPT, "https://api.razorpay.com"],
+    "connect-src": ["'self'", ...(api ? [api] : []), ...media],
+    /*
+     * Nothing is framed any more: the payment gateway's checkout iframe was the
+     * only reason this was ever non-empty, and donations are now paid outside
+     * the portal against a QR the office publishes.
+     */
+    "frame-src": ["'none'"],
     // Nothing in the app embeds a plugin, opens a base tag, or posts a form
     // anywhere but its own API — so say so, and close those vectors.
     "object-src": ["'none'"],

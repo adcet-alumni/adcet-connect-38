@@ -16,6 +16,7 @@ export const JOB_LEASES = {
   eventReminders: "event-reminders",
   geoBackfill: "geo-backfill",
   resumeCleanup: "resume-cleanup",
+  donationPurge: "donation-purge",
   tokenCleanup: "token-cleanup",
 } as const;
 

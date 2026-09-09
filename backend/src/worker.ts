@@ -18,6 +18,7 @@ import { JOB_LEASES, withJobLease, type JobName } from "./lib/jobLease.js";
 import { runEventReminders } from "./jobs/eventReminders.js";
 import { runGeoBackfill } from "./jobs/geoBackfill.js";
 import { runResumeCleanup } from "./jobs/resumeCleanup.js";
+import { runDonationPurge } from "./jobs/donationPurge.js";
 import { runTokenCleanup } from "./jobs/tokenCleanup.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -67,6 +68,18 @@ const JOBS: ScheduledJob[] = [
     leaseMs: 30 * 60_000,
     runAtStartup: true,
     run: () => runResumeCleanup(env.RESUME_RETENTION_DAYS),
+  },
+  {
+    /*
+     * Rejected donations are archived for a month so the donor has something
+     * to point at, then removed. Small and bounded — one indexed read plus a
+     * delete per row.
+     */
+    name: JOB_LEASES.donationPurge,
+    everyMs: DAY_MS,
+    leaseMs: 30 * 60_000,
+    runAtStartup: true,
+    run: () => runDonationPurge(),
   },
   {
     /*

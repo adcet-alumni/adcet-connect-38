@@ -26,6 +26,53 @@ export const SETTINGS = {
     description:
       "Members may publish this many posts per calendar month. The allowance resets on the 1st. Admins are not limited.",
   },
+
+  /*
+   * Where a donation is actually paid.
+   *
+   * There is no payment gateway — the college would not carry the fee — so
+   * these five values *are* the payment page: the donor reads them, pays in
+   * their own bank or UPI app, and comes back to declare what they did. They
+   * live here rather than in env because the alumni office changes the account
+   * without a deploy, and an admin who mistypes one can fix it the same way.
+   *
+   * All five default to empty. `GET /donations/payment-details` reports
+   * `configured: false` until at least one way to pay is filled in, and the
+   * donations page shows "not yet published" instead of an empty QR frame.
+   */
+  donationUpiId: {
+    schema: z.string().trim().max(200),
+    default: "",
+    label: "UPI ID",
+    description:
+      "The VPA donors pay to, e.g. adcet@sbi. Shown beside the QR so a donor can type it instead of scanning.",
+  },
+  donationPayeeName: {
+    schema: z.string().trim().max(200),
+    default: "",
+    label: "Payee name",
+    description: "The account name donors will see in their UPI or banking app. Reassures them they are paying the right place.",
+  },
+  donationQrKey: {
+    schema: z.string().trim().max(500),
+    default: "",
+    label: "Payment QR image",
+    description: "The UPI QR code printed on the donations page. Upload a PNG or JPEG of the QR from your bank's app.",
+  },
+  donationBankDetails: {
+    schema: z.string().trim().max(2000),
+    default: "",
+    label: "Bank transfer details",
+    description:
+      "Account number, IFSC and branch, for donors who prefer NEFT/IMPS to UPI. One detail per line; shown as typed.",
+  },
+  donationInstructions: {
+    schema: z.string().trim().max(4000),
+    default: "",
+    label: "Payment instructions",
+    description:
+      "Anything else a donor should know before paying — shown above the form they fill in afterwards.",
+  },
 } as const;
 
 export type SettingKey = keyof typeof SETTINGS;

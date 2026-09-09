@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { api, apiUrl } from "@/lib/api";
+import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/utils";
 import { DEPARTMENTS as departments } from "@/lib/departments";
 import {
@@ -232,10 +232,6 @@ const AuthPage = () => {
     }
   };
 
-  const startOAuth = (provider: "google" | "linkedin" | "github") => {
-    window.location.href = apiUrl(`/auth/oauth/${provider}`);
-  };
-
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
       {/* Branding rail. Rendered before both forms so it stays anchored to the
@@ -433,12 +429,6 @@ const AuthPage = () => {
                   <Button type="button" className="w-full mt-2 gap-2" onClick={handleNextStep}>
                     Next: Professional Profile <ArrowRight className="h-4 w-4" />
                   </Button>
-
-                  <div className="grid grid-cols-3 gap-2 pt-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => startOAuth("google")}>Google</Button>
-                    <Button type="button" variant="outline" size="sm" onClick={() => startOAuth("linkedin")}><Linkedin className="h-3 w-3 mr-1" /> LinkedIn</Button>
-                    <Button type="button" variant="outline" size="sm" onClick={() => startOAuth("github")}><Github className="h-3 w-3 mr-1" /> GitHub</Button>
-                  </div>
                 </div>
               </motion.div>
             ) : regStep === 2 ? (
@@ -649,25 +639,6 @@ const AuthPage = () => {
               {loggingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sign In"}
             </Button>
           </form>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <Button variant="outline" className="w-full" onClick={() => startOAuth("google")}>Google</Button>
-            <Button variant="outline" className="w-full" onClick={() => startOAuth("linkedin")}>
-              <Linkedin className="mr-2 h-4 w-4" /> LinkedIn
-            </Button>
-            <Button variant="outline" className="w-full" onClick={() => startOAuth("github")}>
-              <Github className="mr-2 h-4 w-4" /> GitHub
-            </Button>
-          </div>
 
           <p className="text-center text-sm text-muted-foreground mt-6">
             Don't have an account?{" "}

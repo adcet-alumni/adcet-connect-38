@@ -107,24 +107,11 @@ const schema = z.object({
 
   LOG_LEVEL: z.string().default("info"),
 
-  // === OAuth / SSO (optional — endpoints return 501 if a provider is unconfigured) ===
-  OAUTH_REDIRECT_BASE_URL: z.string().optional(), // e.g. http://localhost:4000/api/v1/auth/oauth
-  OAUTH_SUCCESS_REDIRECT: z.string().optional(),  // frontend URL to bounce to after success
-
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-
-  LINKEDIN_CLIENT_ID: z.string().optional(),
-  LINKEDIN_CLIENT_SECRET: z.string().optional(),
-
-  GITHUB_CLIENT_ID: z.string().optional(),
-  GITHUB_CLIENT_SECRET: z.string().optional(),
-
-  // === Payments (Razorpay) — optional; donation endpoints return 501 if unset ===
-  RAZORPAY_KEY_ID: z.string().optional(),
-  RAZORPAY_KEY_SECRET: z.string().optional(),
-  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
-  // Public org details printed on receipts.
+  // === Donations ===
+  // There is no payment gateway. A gift is paid off-portal against the UPI QR
+  // the alumni office configures in the admin settings, then declared and
+  // verified in-portal — so nothing here is a secret, only what goes on a
+  // receipt. Public org details printed on receipts:
   ORG_NAME: z.string().default("Annasaheb Dange College of Engineering & Technology, Ashta"),
   ORG_ADDRESS: z.string().default("Ashta, Dist. Sangli, Maharashtra 416301"),
 

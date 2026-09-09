@@ -692,14 +692,137 @@ export const achievementAnnouncementEmail = (
   };
 };
 
-// ── Donation receipt email ──────────────────────────────────────────────
+// ── Donation emails ─────────────────────────────────────────────────────
+//
+// A gift is paid off-portal and verified by hand, so the donor hears from us
+// twice: once when their declaration is filed (`donationSubmittedEmail`), and
+// once when an admin has matched it against the bank statement — either the
+// receipt below, or `donationRejectedEmail` saying why it could not be.
+
+export interface DonationSubmittedEmailData {
+  donorName: string;
+  amount: number; // rupees
+  reference: string;
+  method: string;
+  paidAt: Date;
+  campaignTitle?: string | null;
+}
+
+export const donationSubmittedEmail = (
+  d: DonationSubmittedEmailData,
+): { subject: string; text: string; html: string } => {
+  const amountStr = `₹${d.amount.toLocaleString("en-IN")}`;
+  const body = `
+    <div style="text-align:center; margin-bottom: 8px;">
+      <div style="font-size: 44px;">📝</div>
+      <h2 style="margin: 8px 0;">We have your payment details</h2>
+    </div>
+    <p>Dear ${esc(d.donorName)},</p>
+    <p>Thank you for supporting the ADCET Alumni community. The alumni office will check the
+       reference below against the college's bank statement and confirm your gift. You will get
+       a receipt by email as soon as that is done — usually within a few working days.</p>
+
+    <div class="rsvp-section" style="text-align:left;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+        <tr>
+          <td style="padding: 8px 0; color:#6c757d; font-size:13px; width:150px;">Amount</td>
+          <td style="padding: 8px 0; color:#2d8a6e; font-size:18px; font-weight:700;">${amountStr}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color:#6c757d; font-size:13px;">Reference</td>
+          <td style="padding: 8px 0; color:#2c3e50; font-size:14px; font-weight:600;">${esc(d.reference)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color:#6c757d; font-size:13px;">Method</td>
+          <td style="padding: 8px 0; color:#2c3e50; font-size:14px;">${esc(d.method)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color:#6c757d; font-size:13px;">Paid on</td>
+          <td style="padding: 8px 0; color:#2c3e50; font-size:14px;">${formatDay(d.paidAt)}</td>
+        </tr>
+        ${d.campaignTitle ? `
+        <tr>
+          <td style="padding: 8px 0; color:#6c757d; font-size:13px;">Given for</td>
+          <td style="padding: 8px 0; color:#2c3e50; font-size:14px;">${esc(d.campaignTitle)}</td>
+        </tr>` : ""}
+      </table>
+    </div>
+
+    <p style="font-size:13px; color:#6c757d;">This is not a receipt. Your gift is not recorded as
+       received until the office has verified it.</p>
+    <p style="text-align:center; margin-top: 24px;">With gratitude,<br/><strong>ADCET Alumni Team</strong></p>
+  `;
+
+  const text =
+    `We have your payment details\n\n` +
+    `Dear ${d.donorName},\n\n` +
+    `Thank you for your gift of ${amountStr}. The alumni office will check the reference below\n` +
+    `against the college's bank statement and email you a receipt once it is confirmed.\n\n` +
+    `Reference: ${d.reference}\n` +
+    `Method: ${d.method}\n` +
+    `Paid on: ${formatDay(d.paidAt)}\n` +
+    `${d.campaignTitle ? `Given for: ${d.campaignTitle}\n` : ""}` +
+    `\nThis is not a receipt — your gift is recorded as received only after verification.\n`;
+
+  return {
+    subject: `Donation details received — pending verification (${amountStr})`,
+    text,
+    html: wrap("Donation Submitted", body),
+  };
+};
+
+export interface DonationRejectedEmailData {
+  donorName: string;
+  amount: number; // rupees
+  reference: string;
+  reason: string;
+}
+
+export const donationRejectedEmail = (
+  d: DonationRejectedEmailData,
+): { subject: string; text: string; html: string } => {
+  const amountStr = `₹${d.amount.toLocaleString("en-IN")}`;
+  const body = `
+    <p>Dear ${esc(d.donorName)},</p>
+    <p>The alumni office could not confirm the donation of <strong>${amountStr}</strong> you
+       submitted with reference <strong>${esc(d.reference)}</strong> against the college's bank
+       records, so it has not been recorded as received.</p>
+
+    <div class="rsvp-section" style="text-align:left;">
+      <p style="margin:0; color:#6c757d; font-size:13px;">What the office noted</p>
+      <p style="margin:6px 0 0; color:#2c3e50; font-size:14px;">${esc(d.reason)}</p>
+    </div>
+
+    <p><strong>No money has been taken by this — nothing was charged through the portal.</strong>
+       If you did pay and the reference above is wrong, submit it again with the correct one from
+       your bank or UPI app. If you think this is a mistake, reply to this email and the office
+       will look again.</p>
+    <p style="text-align:center; margin-top: 24px;">Thank you,<br/><strong>ADCET Alumni Team</strong></p>
+  `;
+
+  const text =
+    `Donation could not be verified\n\n` +
+    `Dear ${d.donorName},\n\n` +
+    `The alumni office could not match your donation of ${amountStr} (reference ${d.reference})\n` +
+    `against the college's bank records, so it has not been recorded as received.\n\n` +
+    `What the office noted: ${d.reason}\n\n` +
+    `Nothing was charged through the portal. If the reference was wrong, submit it again with the\n` +
+    `correct one; if you think this is a mistake, reply to this email.\n`;
+
+  return {
+    subject: `Donation could not be verified (${amountStr})`,
+    text,
+    html: wrap("Donation Not Verified", body),
+  };
+};
 
 export interface DonationReceiptEmailData {
   donorName: string;
   amount: number; // rupees
   currency: string;
   receiptNo: string;
-  paymentId?: string | null;
+  /** The donor's own bank/UPI transaction reference, as verified by an admin. */
+  reference?: string | null;
   method?: string | null;
   paidAt: Date;
   message?: string | null;
@@ -716,7 +839,8 @@ export const donationReceiptEmail = (
     </div>
     <p>Dear ${esc(d.donorName)},</p>
     <p>We gratefully acknowledge your generous contribution to the ADCET Alumni community.
-       Your donation has been received successfully. A PDF receipt is attached to this email.</p>
+       Your payment has been verified against the college's bank records and recorded as received.
+       A PDF receipt is attached to this email.</p>
 
     <div class="rsvp-section" style="text-align:left;">
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
@@ -728,10 +852,10 @@ export const donationReceiptEmail = (
           <td style="padding: 8px 0; color:#6c757d; font-size:13px;">Receipt No.</td>
           <td style="padding: 8px 0; color:#2c3e50; font-size:14px; font-weight:600;">${esc(d.receiptNo)}</td>
         </tr>
-        ${d.paymentId ? `
+        ${d.reference ? `
         <tr>
-          <td style="padding: 8px 0; color:#6c757d; font-size:13px;">Payment ID</td>
-          <td style="padding: 8px 0; color:#2c3e50; font-size:14px;">${esc(d.paymentId)}</td>
+          <td style="padding: 8px 0; color:#6c757d; font-size:13px;">Reference</td>
+          <td style="padding: 8px 0; color:#2c3e50; font-size:14px;">${esc(d.reference)}</td>
         </tr>` : ""}
         ${d.method ? `
         <tr>
@@ -753,7 +877,7 @@ export const donationReceiptEmail = (
     `Dear ${d.donorName},\n\n` +
     `We have received your donation of ${amountStr}.\n\n` +
     `Receipt No: ${d.receiptNo}\n` +
-    `${d.paymentId ? `Payment ID: ${d.paymentId}\n` : ""}` +
+    `${d.reference ? `Reference: ${d.reference}\n` : ""}` +
     `${d.method ? `Method: ${d.method.toUpperCase()}\n` : ""}` +
     `Date: ${d.paidAt.toLocaleString("en-IN")}\n\n` +
     `A PDF receipt is attached. With gratitude, ADCET Alumni Team.\n`;

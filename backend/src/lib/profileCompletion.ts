@@ -1,15 +1,15 @@
 /**
  * What counts as a "complete" profile.
  *
- * Form sign-up collects all of this up front (`registerSchema`), but SSO
- * sign-in cannot: Google/LinkedIn/GitHub hand back a name and an email and
- * nothing else. Rather than let those accounts through with an empty profile,
- * `loginWithOAuth` creates them PENDING and the frontend forces them through
+ * Sign-up collects all of this up front (`registerSchema`), so an account made
+ * through the form is complete on creation. Accounts that predate that rule —
+ * and any the office imports — are not, and the frontend forces them through
  * `/complete-profile`, which posts the same fields to
  * `POST /auth/complete-profile`.
  *
  * Keep this list in step with the mandatory half of `registerSchema` — a field
- * that is required at sign-up but missing here would let an SSO user skip it.
+ * that is required at sign-up but missing here is a field the second door
+ * would let an account skip.
  */
 
 /** Profile columns an account must have filled before it can be used. */

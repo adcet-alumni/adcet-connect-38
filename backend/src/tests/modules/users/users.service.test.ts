@@ -43,7 +43,7 @@ describe("users.service — changePassword", () => {
     prismaMock.user.findUnique.mockResolvedValueOnce(null);
     await expect(svc.changePassword("u-1", "x", "y")).rejects.toMatchObject({ status: 404 });
   });
-  it("404 when user has no passwordHash (OAuth-only account)", async () => {
+  it("404 when user has no passwordHash", async () => {
     prismaMock.user.findUnique.mockResolvedValueOnce({ id: "u-1", passwordHash: null });
     await expect(svc.changePassword("u-1", "x", "y")).rejects.toMatchObject({ status: 404 });
   });

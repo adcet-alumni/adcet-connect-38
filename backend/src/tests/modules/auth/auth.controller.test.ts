@@ -1,7 +1,7 @@
 /**
  * Direct controller tests for the parts of auth.controller that are awkward
  * to exercise via supertest: forgot-password (always 202), reset-password,
- * change-password, and the OAuth error branches. The service layer is mocked
+ * change-password. The service layer is mocked
  * so we test only the controller's request/response wiring.
  */
 import { describe, expect, it, jest } from "@jest/globals";
@@ -56,21 +56,5 @@ describe("auth.controller — password recovery", () => {
     );
     expect(changePassword).toHaveBeenCalledWith("u-1", "old", "NewStrong#1");
     expect(res.json).toHaveBeenCalled();
-  });
-});
-
-describe("auth.controller — oauthStart error branches", () => {
-  it("400 BadRequest for unknown provider", async () => {
-    await expect(
-      ctrl.oauthStart({ params: { provider: "myspace" } } as any, mkRes()),
-    ).rejects.toMatchObject({ status: 400 });
-  });
-});
-
-describe("auth.controller — oauthCallback error branches", () => {
-  it("400 BadRequest for unknown provider", async () => {
-    await expect(
-      ctrl.oauthCallback({ params: { provider: "myspace" }, query: {} } as any, mkRes()),
-    ).rejects.toMatchObject({ status: 400 });
   });
 });

@@ -28,12 +28,17 @@ describe("buildCsp", () => {
     expect(d["connect-src"].some((s) => s.includes("/api/v1"))).toBe(false);
   });
 
-  it("allows the payment widget to load, call home and open its iframe", () => {
+  it("frames nothing and calls no third party — there is no payment gateway", () => {
     const d = parse(buildCsp(FULL));
-    expect(d["script-src"]).toContain("https://checkout.razorpay.com");
-    expect(d["frame-src"]).toContain("https://checkout.razorpay.com");
-    expect(d["connect-src"]).toContain("https://api.razorpay.com");
-    expect(d["connect-src"]).toContain("https://lumberjack.razorpay.com");
+    expect(d["frame-src"]).toEqual(["'none'"]);
+    expect(d["script-src"]).toEqual(["'self'"]);
+    // Only our own API and the storage/CDN origins.
+    expect(d["connect-src"]).toEqual([
+      "'self'",
+      "https://api.adcet.in",
+      "https://cdn.adcet.in",
+      "https://res.cloudinary.com",
+    ]);
   });
 
   it("allows map tiles and stored media to be shown", () => {

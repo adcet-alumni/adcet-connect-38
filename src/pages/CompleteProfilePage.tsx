@@ -1,8 +1,8 @@
 /**
- * Onboarding for accounts that reached the portal without a full profile —
- * chiefly SSO sign-ins, since Google/LinkedIn/GitHub hand back only a name and
- * an email. Collects exactly what form sign-up demands, so no route into the
- * platform can skip the mandatory fields.
+ * Onboarding for accounts that reached the portal without a full profile: the
+ * ones created before sign-up collected every required field, and any the
+ * alumni office imports. Collects exactly what sign-up demands, so no route
+ * into the platform can skip the mandatory fields.
  *
  * Reached via the redirect in `ProtectedRoute`; there is no way to dismiss it
  * other than completing the form or signing out.
@@ -174,9 +174,8 @@ const CompleteProfilePage = () => {
             One more step{user ? `, ${user.firstName}` : ""}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Signing in with Google, LinkedIn or GitHub tells us who you are, but not where you
-            studied or what you do now. Every ADCET member provides these details — please fill
-            them in to finish setting up your account.
+            Your account is missing the details every ADCET member provides — where you studied
+            and what you do now. Please fill them in to finish setting up your account.
           </p>
         </div>
 

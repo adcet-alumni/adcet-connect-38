@@ -774,9 +774,10 @@ const buildReport = async (
           currency: true,
           status: true,
           paymentMethod: true,
-          razorpayPaymentId: true,
+          reference: true,
           isAnonymous: true,
           paidAt: true,
+          verifiedAt: true,
           createdAt: true,
           user: { select: { firstName: true, lastName: true, email: true } },
         },
@@ -790,9 +791,10 @@ const buildReport = async (
         "Amount (INR)": d.amount,
         Status: d.status,
         Method: d.paymentMethod ?? "",
-        "Payment ID": d.razorpayPaymentId ?? "",
+        Reference: d.reference ?? "",
         Anonymous: d.isAnonymous ? "Yes" : "No",
         "Paid On": dt(d.paidAt),
+        "Verified On": dt(d.verifiedAt),
         "Created On": d10(d.createdAt),
       }));
       const received = donations.filter((d) => d.status === "RECEIVED");

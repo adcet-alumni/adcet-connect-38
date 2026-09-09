@@ -18,9 +18,14 @@ import { UPLOAD_SCOPES, UPLOAD_MAX_BYTES, type UploadScope } from "../../config/
  * Scopes whose objects are *not* publicly delivered. Everything else is
  * fetched by anyone with the URL anyway (`storageUrl()` on the frontend builds
  * a plain public URL for it), so presigning one grants no access that a
- * visitor did not already have — but these two must be authorised.
+ * visitor did not already have — but these three must be authorised.
+ *
+ * `donation-proof` is a screenshot of somebody's bank or UPI app: their name,
+ * their balance in some apps, and the account they paid from. Only the donor
+ * and an admin verifying the gift ever need it. The payee's QR (`donation-qr`)
+ * is the opposite — it is printed on the donations page for everyone.
  */
-const PRIVATE_SCOPES = new Set<UploadScope>(["resume", "receipt"]);
+const PRIVATE_SCOPES = new Set<UploadScope>(["resume", "receipt", "donation-proof"]);
 
 const SCOPES = new Set<string>(UPLOAD_SCOPES);
 

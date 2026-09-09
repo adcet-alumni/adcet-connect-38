@@ -10,7 +10,6 @@ import PublicHeader from "@/components/public/PublicHeader";
 
 vi.mock("@/lib/api", () => ({
   api: { get: vi.fn().mockResolvedValue({ items: [] }), patch: vi.fn().mockResolvedValue({}), post: vi.fn() },
-  apiUrl: (p: string) => p,
   tokenStore: { get: () => null, set: vi.fn(), clear: vi.fn() },
 }));
 

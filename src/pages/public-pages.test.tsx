@@ -17,7 +17,6 @@ import { ESTEEMED_ALUMNI, ESTEEMED_CATEGORIES } from "@/lib/esteemed";
 // The landing page pulls featured achievements; keep the smoke test offline.
 vi.mock("@/lib/api", () => ({
   api: { get: vi.fn().mockResolvedValue({ items: [] }), patch: vi.fn().mockResolvedValue({}) },
-  apiUrl: (p: string) => p,
   tokenStore: { get: () => null, set: vi.fn(), clear: vi.fn() },
 }));
 

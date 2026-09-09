@@ -6,7 +6,7 @@
  *   - Validation (422) for malformed bodies
  *   - Success paths for register / login / refresh / logout / me
  *   - Bad credentials, unique-constraint conflicts, expired/invalid tokens
- *   - OAuth provider not-configured (501) and CSRF state checks
+ *   - social sign-in being gone (the /auth/oauth/* routes 404)
  *   - Rate limiter does NOT swallow normal traffic in the test env
  */
 import { jest } from "@jest/globals";
@@ -517,7 +517,7 @@ describe("GET /api/v1/auth/me", () => {
   it("reports profileComplete false for an account with an empty profile", async () => {
     const { signAccessToken } = await import("../../lib/jwt.js");
     const access = signAccessToken({ sub: "user-1", email: "alice@example.com", roles: ["ALUMNI"] });
-    // What an OAuth sign-in leaves behind.
+    // What an account with an unfilled profile row looks like.
     prisma.user.findUnique.mockResolvedValueOnce(baseUser({ profile: {} }) as any);
     const res = await request(app).get("/api/v1/auth/me").set("Authorization", `Bearer ${access}`);
     expect(res.body.profileComplete).toBe(false);
@@ -604,25 +604,26 @@ describe("POST /api/v1/auth/complete-profile", () => {
   });
 });
 
-describe("OAuth endpoints", () => {
-  it("400 for an unknown provider", async () => {
-    const res = await request(app).get("/api/v1/auth/oauth/myspace");
-    expect(res.status).toBe(400);
+/**
+ * Social sign-in is gone — Google, LinkedIn and GitHub were removed along with
+ * the `OAuthAccount` table. This is what stops the routes coming back by
+ * accident: a re-added provider registry would make these 404s into redirects.
+ */
+describe("social sign-in is removed", () => {
+  it.each([
+    "/api/v1/auth/oauth/google",
+    "/api/v1/auth/oauth/linkedin",
+    "/api/v1/auth/oauth/github",
+    "/api/v1/auth/oauth/google/callback",
+  ])("404 for %s", async (path) => {
+    const res = await request(app).get(path);
+    expect(res.status).toBe(404);
   });
 
-  it("501 when the provider is not configured", async () => {
-    // No GOOGLE_CLIENT_ID is set in the test env.
-    const res = await request(app).get("/api/v1/auth/oauth/google");
-    expect(res.status).toBe(501);
-    expect(res.body.error.code).toBe("NOT_IMPLEMENTED");
-  });
-
-  it("callback rejects an invalid CSRF state", async () => {
-    const res = await request(app)
-      .get("/api/v1/auth/oauth/google/callback")
-      .query({ code: "abc", state: "never-issued" });
-    // Provider is also unconfigured → 501 short-circuits before state check.
-    expect([401, 501]).toContain(res.status);
+  it("email + password is the only way in", async () => {
+    const res = await request(app).post("/api/v1/auth/login").send({});
+    // 422 (validation), not 404 — the password route is still there.
+    expect(res.status).toBe(422);
   });
 });
 

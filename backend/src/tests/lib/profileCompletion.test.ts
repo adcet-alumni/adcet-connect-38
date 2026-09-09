@@ -40,7 +40,7 @@ describe("lib/profileCompletion", () => {
     expect(missingProfileFields(null)).toEqual([...REQUIRED_PROFILE_FIELDS]);
   });
 
-  it("treats the empty profile an OAuth sign-in creates as incomplete", () => {
+  it("treats an empty profile row as incomplete", () => {
     expect(isProfileComplete({})).toBe(false);
   });
 

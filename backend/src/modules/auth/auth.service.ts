@@ -20,7 +20,6 @@ import { admissionYearFor, type AppRoleName } from "../../config/constants.js";
 import { isProfileComplete } from "../../lib/profileCompletion.js";
 import { resolveProfileLocation } from "../../lib/geocode.js";
 import type { CompleteProfileInput, LoginInput, RegisterInput } from "./auth.validators.js";
-import type { OAuthProfile } from "./providers/index.js";
 
 const REFRESH_TTL_DAYS = 7;
 const RESET_TTL_MINUTES = 60;
@@ -257,9 +256,13 @@ export const logout = async (refreshToken: string) => {
 };
 
 /**
- * Fill in the mandatory profile for an account that couldn't supply it at
- * creation time — i.e. an SSO sign-in, where the provider gives us a name and
- * an email and nothing more.
+ * Fill in the mandatory profile for an account that doesn't have one.
+ *
+ * `registerSchema` collects every required field, so a signup made through the
+ * form is complete the moment it exists. This is the safety net for the ones
+ * that aren't: accounts created before that was true, and any the office
+ * imports. `ProtectedRoute` funnels them here rather than into a portal whose
+ * every screen would be missing its data.
  *
  * The account stays PENDING: completing the profile is what makes it
  * *reviewable*, not approved. An admin still decides.
@@ -291,8 +294,8 @@ export const completeProfile = async (userId: string, input: CompleteProfileInpu
     bio: input.bio || undefined,
   };
 
-  // `upsert` because an OAuth account is created with an empty profile row,
-  // but a profile could also be missing entirely on older accounts.
+  // `upsert` because the profile row may be empty, or missing entirely on an
+  // older account.
   const profile = await prisma.profile.upsert({
     where: { userId },
     create: { userId, ...profileData },
@@ -319,7 +322,7 @@ export const me = async (userId: string) => {
  */
 export const forgotPassword = async (email: string): Promise<void> => {
   const user = await prisma.user.findUnique({ where: { email } });
-  // Silently succeed for unknown or OAuth-only accounts.
+  // Silently succeed for unknown accounts, and for any without a password.
   if (!user || !user.passwordHash) return;
 
   // Invalidate any outstanding tokens for this user, then mint a fresh one.
@@ -380,80 +383,6 @@ export const changePassword = async (
   await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
 };
 
-/**
- * Find-or-create a user from a normalized OAuth profile, then issue our own JWTs.
- * - If the OAuthAccount exists → log that user in.
- * - Else if a user with the same email exists → link the OAuth account to them.
- * - Else → create a new ALUMNI user (auto-approved since email is provider-verified).
- */
-export const loginWithOAuth = async (profile: OAuthProfile) => {
-  // Providers return whatever case the user typed when they signed up with
-  // them. Canonicalise before any lookup or insert, otherwise "Alice@x.com"
-  // from GitHub would create a second account alongside the "alice@x.com"
-  // registered through the form.
-  const email = profile.email.trim().toLowerCase();
-
-  // 1. Already-linked account?
-  const existingLink = await prisma.oAuthAccount.findUnique({
-    where: { provider_providerId: { provider: profile.provider, providerId: profile.providerId } },
-    include: { user: { include: { roles: true, profile: true } } },
-  });
-
-  let user = existingLink?.user;
-
-  // 2. Same email but no link yet → attach.
-  if (!user) {
-    const byEmail = await prisma.user.findUnique({
-      where: { email },
-      include: { roles: true, profile: true },
-    });
-    if (byEmail) {
-      await prisma.oAuthAccount.create({
-        data: {
-          userId: byEmail.id,
-          provider: profile.provider,
-          providerId: profile.providerId,
-        },
-      });
-      user = byEmail;
-    }
-  }
-
-  // 3. Brand-new user.
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        email,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        /**
-         * ALWAYS pending. A provider-verified email proves the person owns the
-         * address — it says nothing about whether they are an ADCET alumnus,
-         * which is what approval is actually for. Auto-approving here used to
-         * hand anyone with a Google account full portal access while skipping
-         * both the mandatory profile and admin review.
-         */
-        status: "PENDING",
-        emailVerifiedAt: profile.emailVerified ? new Date() : null,
-        roles: { create: { role: "ALUMNI" } },
-        // Empty for now — the provider gives us no academic or contact detail.
-        // `/complete-profile` collects the same fields form sign-up requires.
-        profile: { create: {} },
-        preferences: { create: {} },
-        oauthAccounts: {
-          create: { provider: profile.provider, providerId: profile.providerId },
-        },
-      },
-      include: { roles: true, profile: true },
-    });
-  }
-
-  const roles = user.roles.map((r) => r.role as AppRoleName);
-  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  const tokens = await issueTokens(user, roles);
-  return { user: publicUser(user, roles), ...tokens };
-};
-
 const publicUser = (
   u: {
     id: string;
@@ -474,9 +403,9 @@ const publicUser = (
   rejectionReason: u.rejectionReason ?? null,
   roles,
   /**
-   * Whether the mandatory profile is filled in. SSO accounts start `false`;
-   * the frontend uses this to force them through `/complete-profile` before
-   * anything else. Callers that didn't load the profile relation get `false`
+   * Whether the mandatory profile is filled in. The frontend uses this to
+   * force an incomplete account through `/complete-profile` before anything
+   * else. Callers that didn't load the profile relation get `false`
    * — never silently `true`, so a missing `include` can't open the gate.
    */
   profileComplete: isProfileComplete(u.profile as Parameters<typeof isProfileComplete>[0]),
