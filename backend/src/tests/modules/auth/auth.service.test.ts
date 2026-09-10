@@ -26,6 +26,13 @@ beforeEach(() => {
       Object.values(m).forEach((fn: any) => fn?.mockReset?.());
     }
   });
+  // Every sign-up claims a proof-of-study document; `count: 1` is that claim
+  // winning. `auth.routes.test.ts` covers what happens when it loses.
+  prismaMock.pendingIdentityDocument.updateMany.mockResolvedValue({ count: 1 });
+  prismaMock.pendingIdentityDocument.findUnique.mockResolvedValue({
+    id: "doc-1",
+    objectKey: "identity/doc-1/marksheet.jpg",
+  });
 });
 
 describe("modules/auth/service — register", () => {

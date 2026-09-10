@@ -12,6 +12,23 @@ export const sendRegistrationOtp = async (req: Request, res: Response) => {
   });
 };
 
+/**
+ * The sign-up identity document — the one upload with no session in front of
+ * it, because the file is collected before the account exists. Raw bytes
+ * rather than JSON: a phone photo of a marksheet base64-encodes to well over
+ * the 1 MB body limit, and `POST /uploads/direct` already establishes the
+ * pattern. Everything about the bytes is checked in the service.
+ */
+export const uploadIdentityDocument = async (req: Request, res: Response) => {
+  const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const result = await service.storeIdentityDocument({
+    fileName: String(req.query.fileName ?? "document"),
+    contentType: req.header("content-type") ?? "",
+    body,
+  });
+  res.status(201).json(result);
+};
+
 export const register = async (req: Request, res: Response) => {
   const result = await service.register(req.body);
   res.status(201).json(result);

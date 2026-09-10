@@ -20,6 +20,7 @@ import { runGeoBackfill } from "./jobs/geoBackfill.js";
 import { runResumeCleanup } from "./jobs/resumeCleanup.js";
 import { runDonationPurge } from "./jobs/donationPurge.js";
 import { runContentRetention } from "./jobs/contentRetention.js";
+import { runPendingUploadCleanup } from "./jobs/pendingUploadCleanup.js";
 import { runTokenCleanup } from "./jobs/tokenCleanup.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -95,6 +96,20 @@ const JOBS: ScheduledJob[] = [
     leaseMs: 60 * 60_000,
     runAtStartup: true,
     run: () => runContentRetention(),
+  },
+  {
+    /*
+     * Sign-up identity documents nobody completed a registration with. The
+     * upload endpoint has no session in front of it, so this sweep is what
+     * bounds it — see the job's own notes. Hourly rather than daily: the
+     * window is 24 hours, and a daily tick would let a day's abandoned
+     * uploads sit for up to two.
+     */
+    name: JOB_LEASES.pendingUploadCleanup,
+    everyMs: 60 * 60_000,
+    leaseMs: 15 * 60_000,
+    runAtStartup: true,
+    run: () => runPendingUploadCleanup(),
   },
   {
     /*

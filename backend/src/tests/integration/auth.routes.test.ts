@@ -17,6 +17,15 @@ import { createPrismaDeepMock } from "../helpers/integrationApp.js";
 const prisma = createPrismaDeepMock();
 jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma }));
 
+/** The sign-up document upload is the one auth path that touches storage. */
+const uploadMock = jest.fn(async (input: { ownerId: string; fileName: string }) => ({
+  key: `identity/${input.ownerId}/${input.fileName}`,
+  publicUrl: "",
+}));
+jest.unstable_mockModule("../../storage/index.js", () => ({
+  getStorage: () => ({ upload: uploadMock, delete: jest.fn(async () => undefined) }),
+}));
+
 const { hashPassword } = await import("../../lib/password.js");
 const { signRefreshToken, hashToken } = await import("../../lib/jwt.js");
 const { buildApp } = await import("../../app.js");
@@ -35,6 +44,23 @@ const baseUser = (overrides: any = {}) => ({
 });
 
 const OTP = "123456";
+const DOC_ID = "11111111-2222-4333-8444-555555555555";
+
+/**
+ * The sign-up identity document, already uploaded and waiting to be claimed.
+ *
+ * Every registration consumes one, so the happy path is the default here and
+ * the tests that care about the claim override it. `updateMany` returning 1 is
+ * the claim succeeding — the conditional update *is* the single-use guarantee.
+ */
+const identityDocumentIsClaimable = () => {
+  prisma.pendingIdentityDocument.updateMany.mockResolvedValue({ count: 1 } as never);
+  prisma.pendingIdentityDocument.findUnique.mockResolvedValue({
+    id: DOC_ID,
+    objectKey: `identity/${DOC_ID}/marksheet.jpg`,
+  } as never);
+};
+beforeEach(identityDocumentIsClaimable);
 
 /**
  * A complete, valid sign-up body. Sign-up requires a full profile (department,
@@ -58,6 +84,7 @@ const registerBody = (overrides: Record<string, unknown> = {}) => ({
   currentCompany: "Infosys",
   currentRole: "SDE-2",
   linkedinUrl: "https://linkedin.com/in/alice",
+  identityDocumentId: DOC_ID,
   ...overrides,
 });
 
@@ -74,6 +101,7 @@ const fullProfile = (overrides: Record<string, unknown> = {}) => ({
   currentCompany: "Infosys",
   currentRole: "SDE-2",
   linkedinUrl: "https://linkedin.com/in/alice",
+  identityDocumentId: DOC_ID,
   ...overrides,
 });
 
@@ -113,6 +141,73 @@ describe("POST /api/v1/auth/register/send-otp", () => {
     expect(prisma.emailVerificationOtp.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ email: "alice@example.com" }) }),
     );
+  });
+});
+
+/**
+ * The proof-of-study upload is the only endpoint in the application that
+ * accepts bytes with no session behind it — sign-up collects the document
+ * before the email is verified, which is before there is an account to own it.
+ * These pin the four things that keep that from being an open door: the type
+ * and the size are checked against what actually arrived, an empty body is
+ * refused, and the caller is told an id rather than where the file went.
+ */
+describe("POST /api/v1/auth/register/identity-document", () => {
+  const upload = (body: Buffer, contentType: string, fileName = "marksheet.jpg") =>
+    request(app)
+      .post(`/api/v1/auth/register/identity-document?fileName=${encodeURIComponent(fileName)}`)
+      .set("Content-Type", contentType)
+      .send(body);
+
+  beforeEach(() => {
+    prisma.pendingIdentityDocument.create.mockResolvedValue({ id: DOC_ID } as never);
+    prisma.pendingIdentityDocument.update.mockResolvedValue({} as never);
+  });
+
+  it("201s without a session, and answers with an id — never a key", async () => {
+    const res = await upload(Buffer.from("jpeg-bytes"), "image/jpeg");
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ documentId: DOC_ID });
+    // Knowing where the file went would let a caller reach it directly; the id
+    // is worth exactly one claim and nothing else.
+    expect(JSON.stringify(res.body)).not.toMatch(/identity\//);
+  });
+
+  it("stores it under the private identity scope", async () => {
+    await upload(Buffer.from("jpeg-bytes"), "image/jpeg");
+    expect(uploadMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "identity", contentType: "image/jpeg" }),
+    );
+  });
+
+  it("400s a file type that is neither an image nor a PDF", async () => {
+    const res = await upload(Buffer.from("MZ\x90\x00"), "application/x-msdownload", "run.exe");
+    expect(res.status).toBe(400);
+    expect(prisma.pendingIdentityDocument.create).not.toHaveBeenCalled();
+  });
+
+  it("400s an empty body", async () => {
+    const res = await upload(Buffer.alloc(0), "image/png");
+    expect(res.status).toBe(400);
+  });
+
+  /** There is no declared size to trust here — only the bytes that arrived. */
+  it("400s a file over the scope's ceiling", async () => {
+    const tooBig = Buffer.alloc(11 * 1024 * 1024, 1);
+    const res = await upload(tooBig, "image/png");
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a PDF", async () => {
+    const res = await upload(Buffer.from("%PDF-1.4"), "application/pdf", "degree.pdf");
+    expect(res.status).toBe(201);
+  });
+
+  /** Browsers append a charset; the check must not be defeated by one. */
+  it("ignores a charset parameter on the content type", async () => {
+    const res = await upload(Buffer.from("bytes"), "image/jpeg; charset=binary");
+    expect(res.status).toBe(201);
   });
 });
 
@@ -251,7 +346,9 @@ describe("POST /api/v1/auth/register", () => {
     "city",
     "currentCompany",
     "currentRole",
-    "linkedinUrl",
+    // LinkedIn is deliberately absent: it stopped being mandatory when sign-up
+    // began asking for a document instead. `identityDocumentId` took its place.
+    "identityDocumentId",
   ])("422 when the mandatory field %s is missing", async (field) => {
     const body = registerBody();
     delete (body as any)[field];
@@ -388,6 +485,69 @@ describe("POST /api/v1/auth/register", () => {
       .send(registerBody({ email: "bob@example.com", firstName: "Bob", lastName: "B" }));
     expect(res.status).toBe(500);
     expect(res.body.error.code).toBe("INTERNAL");
+  });
+});
+
+/**
+ * One uploaded document belongs to one account. The claim is a conditional
+ * `updateMany` on `claimedAt`, so the database arbitrates a race rather than a
+ * read-then-write in the service — these pin what the outcome has to be.
+ */
+describe("the identity document is single-use", () => {
+  const registerWithOtp = () => {
+    prisma.user.findUnique.mockResolvedValueOnce(null);
+    prisma.emailVerificationOtp.findFirst.mockResolvedValueOnce(baseOtpRow() as any);
+    prisma.emailVerificationOtp.update.mockResolvedValueOnce({} as any);
+    return request(app).post("/api/v1/auth/register").send(registerBody());
+  };
+
+  it("writes the claimed document's key onto the new profile", async () => {
+    prisma.user.create.mockResolvedValueOnce(baseUser() as any);
+    prisma.refreshToken.create.mockResolvedValueOnce({} as any);
+
+    const res = await registerWithOtp();
+
+    expect(res.status).toBe(201);
+    const profile = (prisma.user.create.mock.calls[0][0] as any).data.profile.create;
+    expect(profile.identityDocumentKey).toBe(`identity/${DOC_ID}/marksheet.jpg`);
+  });
+
+  /** A second registration with the same id loses the race, and is told so. */
+  it("400s a document that has already been claimed", async () => {
+    prisma.pendingIdentityDocument.updateMany.mockResolvedValue({ count: 0 } as never);
+
+    const res = await registerWithOtp();
+
+    expect(res.status).toBe(400);
+    // Nothing was created — the account must not exist without its evidence.
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The claim only matches rows inside the retention window, so an id from an
+   * upload the cleanup job has not reached yet is still refused.
+   */
+  it("scopes the claim to unclaimed rows inside the retention window", async () => {
+    prisma.user.create.mockResolvedValueOnce(baseUser() as any);
+    prisma.refreshToken.create.mockResolvedValueOnce({} as any);
+
+    await registerWithOtp();
+
+    const where = (prisma.pendingIdentityDocument.updateMany.mock.calls.at(-1)![0] as any).where;
+    expect(where.id).toBe(DOC_ID);
+    expect(where.claimedAt).toBeNull();
+    expect(where.createdAt.gte).toBeInstanceOf(Date);
+  });
+
+  /** The OTP is spent first: a replayed code must not buy a second attempt. */
+  it("consumes the OTP before claiming the document", async () => {
+    prisma.pendingIdentityDocument.updateMany.mockResolvedValue({ count: 0 } as never);
+
+    await registerWithOtp();
+
+    expect(prisma.emailVerificationOtp.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ consumedAt: expect.any(Date) }) }),
+    );
   });
 });
 

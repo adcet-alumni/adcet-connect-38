@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, raw } from "express";
 import { asyncHandler } from "../../lib/asyncHandler.js";
 import { validate } from "../../middlewares/validate.js";
 import { requireAuth } from "../../middlewares/auth.js";
@@ -18,6 +18,19 @@ import {
 export const authRouter = Router();
 
 authRouter.post("/register/send-otp", authLimiter, validate(sendRegistrationOtpSchema), asyncHandler(ctrl.sendRegistrationOtp));
+/*
+ * Proof of study, uploaded before the email is verified — so anonymous, and
+ * therefore behind the same limiter as sign-up itself. `raw` because the body
+ * is the file: the type, the size and the emptiness of it are all checked
+ * against the received bytes in the service, and an upload no registration
+ * claims is swept by `jobs/pendingUploadCleanup.ts`.
+ */
+authRouter.post(
+  "/register/identity-document",
+  authLimiter,
+  raw({ type: "*/*", limit: "12mb" }),
+  asyncHandler(ctrl.uploadIdentityDocument),
+);
 authRouter.post("/register", authLimiter, validate(registerSchema), asyncHandler(ctrl.register));
 authRouter.post("/login", loginLimiter, validate(loginSchema), asyncHandler(ctrl.login));
 authRouter.post("/refresh", validate(refreshSchema), asyncHandler(ctrl.refresh));

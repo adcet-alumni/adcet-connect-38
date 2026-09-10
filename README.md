@@ -50,8 +50,9 @@
 - **Authentication & RBAC** — email + password only (there is no social
   sign-in), JWT access + refresh tokens, two roles (`ADMIN`, `ALUMNI`), stored
   in a separate table to prevent privilege escalation. Multi-step registration
-  collecting a full profile, with LinkedIn (required), GitHub, Twitter/X, and
-  website profile URLs.
+  collecting a full profile plus **proof of study** — a library card, marksheet,
+  leaving certificate or degree certificate, shown to the admin reviewing the
+  account. LinkedIn, GitHub, Twitter/X and website URLs are all optional.
 - **Alumni Directory** with filters (department, year, company, city).
 - **5 Themes** — Default, Ocean, Sunset, Forest, Royal — with dark mode toggle.
   Persisted per-user in the database.

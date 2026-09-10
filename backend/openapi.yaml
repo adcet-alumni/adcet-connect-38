@@ -105,6 +105,37 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
 
+  /auth/register/identity-document:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Upload proof of study, before the account exists
+      description: >
+        The only endpoint that accepts bytes anonymously — the document is
+        collected before the email is verified, so there is no session yet.
+        Rate limited; the MIME type and size are checked against the bytes
+        received; uploads no registration claims are swept after 24 hours.
+        Answers with an id, never the storage key.
+      parameters:
+        - { in: query, name: fileName, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+          application/pdf: { schema: { type: string, format: binary } }
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documentId: { type: string, format: uuid, description: "Pass to POST /auth/register as identityDocumentId" }
+        '400': { description: Wrong type, empty, or too large }
+
   # ---------- USERS / PROFILES ----------
   /users/me/preferences:
     get:

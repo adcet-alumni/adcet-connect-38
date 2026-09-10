@@ -54,7 +54,7 @@ export const UPLOAD_SCOPES = [
   "avatar", "banner", "event", "achievement", "receipt", "resume",
   "event-attachment", "job-attachment", "email-attachment", "post",
   "newsletter", "newsletter-cover", "gallery", "collaboration",
-  "donation-proof", "donation-qr",
+  "donation-proof", "donation-qr", "identity",
 ] as const;
 export type UploadScope = (typeof UPLOAD_SCOPES)[number];
 
@@ -105,6 +105,8 @@ export const UPLOAD_MAX_BYTES: Record<UploadScope, number> = {
   // A screenshot off a UPI app, and the payee's QR image.
   "donation-proof": 10 * MB,
   "donation-qr": 5 * MB,
+  // A photo of a marksheet or a scanned certificate, off a phone.
+  identity: 10 * MB,
 };
 
 /**
@@ -279,3 +281,46 @@ export const JOB_RETENTION = {
  * are never swept, however long ago they were created.
  */
 export const EVENT_RETENTION_MONTHS = 6;
+
+/**
+ * The proof of study sign-up asks for.
+ *
+ * Nothing on an account previously said whether the applicant had actually
+ * been a student here — an admin approving one had a name, a batch and a
+ * department, every one of them typed by the applicant. One of these documents
+ * is now required, and shown to the admin reviewing the account.
+ *
+ * Mirrored by `IDENTITY_DOCUMENT_KINDS` in `src/lib/identity.ts`.
+ */
+export const IDENTITY_DOCUMENT_KINDS = [
+  "Library card",
+  "Marksheet",
+  "Leaving certificate",
+  "Degree certificate",
+] as const;
+
+/**
+ * What an identity document may be.
+ *
+ * Deliberately narrow, and enforced on the *server* against the bytes' declared
+ * type: this is the one upload endpoint with no session in front of it, so it
+ * is also the one place an open door would let someone park arbitrary files in
+ * the college's bucket.
+ */
+export const IDENTITY_DOCUMENT_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "application/pdf",
+] as const;
+
+/**
+ * How long an uploaded document waits for the sign-up that will claim it.
+ *
+ * An abandoned registration leaves the object behind, and an unauthenticated
+ * endpoint with no sweep behind it is a bucket anyone can fill. Generous enough
+ * that a slow sign-up — an OTP email that took a while, a form filled in over
+ * lunch — is never surprised by its own upload vanishing.
+ */
+export const PENDING_UPLOAD_RETENTION_HOURS = 24;

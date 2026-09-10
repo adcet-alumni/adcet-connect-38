@@ -23,7 +23,6 @@ export const REQUIRED_PROFILE_FIELDS = [
   "city",
   "currentCompany",
   "currentRole",
-  "linkedinUrl",
 ] as const;
 
 export type RequiredProfileField = (typeof REQUIRED_PROFILE_FIELDS)[number];

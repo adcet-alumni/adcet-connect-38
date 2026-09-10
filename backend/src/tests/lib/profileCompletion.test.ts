@@ -24,7 +24,7 @@ describe("lib/profileCompletion", () => {
     // If these drift, an SSO user could skip a field the sign-up form requires
     // (or be blocked on one it doesn't collect).
     const required = Object.keys(requiredProfileFields).filter(
-      (k) => !["githubUrl", "twitterUrl", "websiteUrl", "bio"].includes(k),
+      (k) => !["linkedinUrl", "githubUrl", "twitterUrl", "websiteUrl", "bio"].includes(k),
     );
     expect([...REQUIRED_PROFILE_FIELDS].sort()).toEqual(required.sort());
   });

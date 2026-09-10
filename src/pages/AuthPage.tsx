@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Eye, EyeOff, Github, Linkedin, Loader2, ArrowLeft, ArrowRight, Twitter, Globe, Phone, MapPin, Briefcase, User as UserIcon, MailCheck, Cake } from "lucide-react";
+import { Eye, EyeOff, Github, Linkedin, Loader2, ArrowLeft, ArrowRight, Twitter, Globe, Phone, MapPin, Briefcase, User as UserIcon, MailCheck, Cake, FileCheck2, Upload, X as XIcon, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +8,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { api } from "@/lib/api";
+import { api, API_BASE_URL } from "@/lib/api";
+import { IDENTITY_ACCEPT, identityDocumentList } from "@/lib/identity";
+import { UPLOAD_MAX_BYTES } from "@/lib/uploadLimits";
 import { errorMessage } from "@/lib/utils";
 import { DEPARTMENTS as departments } from "@/lib/departments";
 import {
@@ -85,6 +87,18 @@ const AuthPage = () => {
   const [step1Errors, setStep1Errors] = useState<string[]>([]);
   const [step2Errors, setStep2Errors] = useState<string[]>([]);
 
+  /*
+   * Proof of study, uploaded at the end of step 2.
+   *
+   * Held as the id the server hands back, not the file: the bytes are stored
+   * before the account exists, and `register()` exchanges this id for the key
+   * it writes onto the new profile. Uploading again replaces the id, so a
+   * mistaken file is simply re-picked.
+   */
+  const [documentId, setDocumentId] = useState<string | null>(null);
+  const [documentName, setDocumentName] = useState<string | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+
   // Step 3: email OTP verification
   const [otp, setOtp] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -116,16 +130,19 @@ const AuthPage = () => {
   };
 
   /**
-   * Step 2 gathers contact and professional details. All four are mandatory —
-   * the directory is only useful if everyone is reachable and placed.
+   * Step 2 gathers contact and professional details, and the proof of study.
+   *
+   * Everything here is mandatory except LinkedIn — the directory is only useful
+   * if everyone is reachable and placed, and the document is what an admin
+   * reviews the application against.
    */
   const validateStep2 = (): boolean => {
     const errors: string[] = [];
-    if (!reg.linkedinUrl.trim()) errors.push("LinkedIn profile URL is required");
     if (!reg.phone.trim()) errors.push("Phone number is required");
     if (!reg.city.trim()) errors.push("City is required");
     if (!reg.currentCompany.trim()) errors.push("Current company is required");
     if (!reg.currentRole.trim()) errors.push("Current role is required");
+    if (!documentId) errors.push("Upload your proof of study to continue");
     setStep2Errors(errors);
     return errors.length === 0;
   };
@@ -148,6 +165,49 @@ const AuthPage = () => {
       toast({ title: "Sign-in failed", description: errorMessage(err, "Check your credentials"), variant: "destructive" });
     } finally {
       setLoggingIn(false);
+    }
+  };
+
+  /**
+   * Send the proof-of-study document ahead of the account it belongs to.
+   *
+   * Raw bytes to an anonymous endpoint — there is no session yet, and a phone
+   * photo of a marksheet is far too large to base64 into a JSON body. The
+   * server checks the type and the size against what it actually receives, so
+   * the guards here are only to fail fast and say something useful.
+   */
+  const uploadDocument = async (file: File) => {
+    if (file.size > UPLOAD_MAX_BYTES.identity) {
+      toast({
+        title: "That file is too large",
+        description: `Please upload something under ${UPLOAD_MAX_BYTES.identity / (1024 * 1024)} MB.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setUploadingDoc(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/auth/register/identity-document?fileName=${encodeURIComponent(file.name)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        },
+      );
+      const payload = (await res.json().catch(() => null)) as
+        | { documentId?: string; error?: { message?: string } }
+        | null;
+      if (!res.ok || !payload?.documentId) {
+        throw new Error(payload?.error?.message ?? "Upload failed. Please try again.");
+      }
+      setDocumentId(payload.documentId);
+      setDocumentName(file.name);
+      setStep2Errors((errs) => errs.filter((e) => !e.startsWith("Upload your proof")));
+    } catch (err: unknown) {
+      toast({ title: "Could not upload", description: errorMessage(err), variant: "destructive" });
+    } finally {
+      setUploadingDoc(false);
     }
   };
 
@@ -208,7 +268,8 @@ const AuthPage = () => {
         graduationYear: Number(reg.graduationYear),
         birthDay: Number(reg.birthDay),
         birthMonth: Number(reg.birthMonth),
-        linkedinUrl: reg.linkedinUrl.trim(),
+        identityDocumentId: documentId!,
+        linkedinUrl: reg.linkedinUrl.trim() || undefined,
         githubUrl: reg.githubUrl.trim() || undefined,
         twitterUrl: reg.twitterUrl.trim() || undefined,
         websiteUrl: reg.websiteUrl.trim() || undefined,
@@ -390,7 +451,10 @@ const AuthPage = () => {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Birth Date *</Label>
+                      {/* Same flex shape as the month label beside it. A bare text label
+                          is shorter than one wrapping an icon, which pushed the two
+                          selects out of line by a few pixels. */}
+                      <Label className="flex items-center gap-1.5">Birth Date *</Label>
                       <Select
                         value={reg.birthDay}
                         onValueChange={(v) => setReg({ ...reg, birthDay: v })}
@@ -442,16 +506,15 @@ const AuthPage = () => {
                 <form onSubmit={handleStep2} className="space-y-3">
                   <div className="space-y-1.5">
                     <Label className="flex items-center gap-1.5">
-                      <Linkedin className="h-3.5 w-3.5 text-blue-600" /> LinkedIn Profile URL *
+                      <Linkedin className="h-3.5 w-3.5 text-blue-600" /> LinkedIn Profile URL
                     </Label>
                     <Input
-                      required
                       type="url"
                       placeholder="https://linkedin.com/in/yourprofile"
                       value={reg.linkedinUrl}
                       onChange={(e) => setReg({ ...reg, linkedinUrl: e.target.value })}
                     />
-                    <p className="text-xs text-muted-foreground">Required for verification and networking</p>
+                    <p className="text-xs text-muted-foreground">Important for networking</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -511,6 +574,66 @@ const AuthPage = () => {
                     <Textarea placeholder="Tell us a bit about yourself..." rows={2} value={reg.bio} onChange={(e) => setReg({ ...reg, bio: e.target.value })} />
                   </div>
 
+                  {/*
+                    * Proof of study — the last thing before the email is
+                    * verified, and the only thing on this form the alumni
+                    * office can actually check. Everything else is typed.
+                    */}
+                  <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+                    <Label className="flex items-center gap-1.5">
+                      <FileCheck2 className="h-3.5 w-3.5 text-primary" /> Proof of study *
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {identityDocumentList()} — a photo or PDF is fine.
+                    </p>
+
+                    {documentId ? (
+                      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+                        <FileCheck2 className="h-4 w-4 text-accent shrink-0" />
+                        <span className="text-sm text-foreground truncate flex-1">{documentName}</span>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 shrink-0"
+                          title="Choose a different file"
+                          onClick={() => { setDocumentId(null); setDocumentName(null); }}
+                        >
+                          <XIcon className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full gap-2"
+                        disabled={uploadingDoc}
+                        onClick={() => document.getElementById("identity-doc")?.click()}
+                      >
+                        {uploadingDoc ? (
+                          <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
+                        ) : (
+                          <><Upload className="h-4 w-4" /> Upload document</>
+                        )}
+                      </Button>
+                    )}
+                    <input
+                      id="identity-doc"
+                      type="file"
+                      accept={IDENTITY_ACCEPT}
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void uploadDocument(f);
+                        e.target.value = "";
+                      }}
+                    />
+                    <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+                      <ShieldCheck className="h-3 w-3 mt-0.5 shrink-0" />
+                      Seen only by you and the alumni office, to confirm you studied at ADCET.
+                    </p>
+                  </div>
+
                   {step2Errors.length > 0 && (
                     <div className="text-sm text-destructive space-y-1">
                       {step2Errors.map((e, i) => <p key={i}>{e}</p>)}
@@ -521,7 +644,7 @@ const AuthPage = () => {
                     <Button type="button" variant="outline" className="gap-1.5" onClick={() => setRegStep(1)}>
                       <ArrowLeft className="h-4 w-4" /> Back
                     </Button>
-                    <Button type="submit" className="flex-1 gap-2" disabled={sendingOtp}>
+                    <Button type="submit" className="flex-1 gap-2" disabled={sendingOtp || uploadingDoc}>
                       {sendingOtp ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Next: Verify Email <ArrowRight className="h-4 w-4" /></>}
                     </Button>
                   </div>

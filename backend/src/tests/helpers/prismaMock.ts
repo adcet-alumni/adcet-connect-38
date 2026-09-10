@@ -70,6 +70,7 @@ const MODELS = [
   "geoLocation",
   "collaborationRequest",
   "archivedContent",
+  "pendingIdentityDocument",
 ] as const;
 
 export type MockedPrisma = {

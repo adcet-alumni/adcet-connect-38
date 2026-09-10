@@ -24,8 +24,14 @@ import { UPLOAD_SCOPES, UPLOAD_MAX_BYTES, type UploadScope } from "../../config/
  * their balance in some apps, and the account they paid from. Only the donor
  * and an admin verifying the gift ever need it. The payee's QR (`donation-qr`)
  * is the opposite — it is printed on the donations page for everyone.
+ *
+ * `identity` is a marksheet or a certificate — a roll number, a date of birth,
+ * a photograph and a set of results. Only the alumnus it belongs to and an
+ * admin reviewing the account may ever fetch one, and because the key was built
+ * before the account existed its owner segment is an upload id rather than a
+ * user id: `authorizeRead` resolves the real owner through `Profile` instead.
  */
-const PRIVATE_SCOPES = new Set<UploadScope>(["resume", "receipt", "donation-proof"]);
+const PRIVATE_SCOPES = new Set<UploadScope>(["resume", "receipt", "donation-proof", "identity"]);
 
 const SCOPES = new Set<string>(UPLOAD_SCOPES);
 
@@ -73,6 +79,20 @@ const authorizeRead = async (caller: Caller, key: string): Promise<void> => {
     });
     if (application) return;
   }
+
+  /*
+   * An identity document's key was minted before its owner had an account, so
+   * the `ownerId` segment is the upload's id and the check above cannot match.
+   * The profile carrying the key is the authority on whose document it is.
+   */
+  if (parts.scope === "identity") {
+    const profile = await prisma.profile.findFirst({
+      where: { identityDocumentKey: key, userId: caller.id },
+      select: { userId: true },
+    });
+    if (profile) return;
+  }
+
   throw Forbidden("You do not have access to this file");
 };
 

@@ -103,7 +103,6 @@ const CompleteProfilePage = () => {
     if (!form.city.trim()) e.push("City is required");
     if (!form.currentCompany.trim()) e.push("Current company is required");
     if (!form.currentRole.trim()) e.push("Current role is required");
-    if (!form.linkedinUrl.trim()) e.push("LinkedIn profile URL is required");
     setErrors(e);
     return e.length === 0;
   };
@@ -123,7 +122,7 @@ const CompleteProfilePage = () => {
         city: form.city.trim(),
         currentCompany: form.currentCompany.trim(),
         currentRole: form.currentRole.trim(),
-        linkedinUrl: form.linkedinUrl.trim(),
+        linkedinUrl: form.linkedinUrl.trim() || undefined,
         githubUrl: form.githubUrl.trim() || undefined,
         twitterUrl: form.twitterUrl.trim() || undefined,
         websiteUrl: form.websiteUrl.trim() || undefined,
@@ -247,7 +246,10 @@ const CompleteProfilePage = () => {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Birth Date *</Label>
+              {/* Same flex shape as the month label beside it — a bare text label
+                  is shorter than one wrapping an icon, which left the two selects
+                  a few pixels out of line. */}
+              <Label className="flex items-center gap-1.5">Birth Date *</Label>
               <Select
                 value={form.birthDay}
                 onValueChange={(v) => setForm({ ...form, birthDay: v })}
@@ -291,10 +293,10 @@ const CompleteProfilePage = () => {
 
           <div className="space-y-1.5">
             <Label className="flex items-center gap-1.5">
-              <Linkedin className="h-3.5 w-3.5 text-blue-600" /> LinkedIn Profile URL *
+              <Linkedin className="h-3.5 w-3.5 text-blue-600" /> LinkedIn Profile URL
             </Label>
-            <Input required type="url" placeholder="https://linkedin.com/in/yourprofile" value={form.linkedinUrl} onChange={(e) => setForm({ ...form, linkedinUrl: e.target.value })} />
-            <p className="text-xs text-muted-foreground">Required for verification and networking</p>
+            <Input type="url" placeholder="https://linkedin.com/in/yourprofile" value={form.linkedinUrl} onChange={(e) => setForm({ ...form, linkedinUrl: e.target.value })} />
+            <p className="text-xs text-muted-foreground">Important for networking</p>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">

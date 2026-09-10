@@ -15,8 +15,15 @@ import { BadRequest, Conflict, ServiceUnavailable, Unauthorized } from "../../li
 import { sendEmail } from "../../lib/mailer.js";
 import { emailVerificationOtpEmail, passwordResetEmail } from "../../lib/email-templates.js";
 import { logger } from "../../lib/logger.js";
+import { getStorage } from "../../storage/index.js";
 import { env } from "../../config/env.js";
-import { admissionYearFor, type AppRoleName } from "../../config/constants.js";
+import {
+  admissionYearFor,
+  IDENTITY_DOCUMENT_MIME_TYPES,
+  PENDING_UPLOAD_RETENTION_HOURS,
+  UPLOAD_MAX_BYTES,
+  type AppRoleName,
+} from "../../config/constants.js";
 import { isProfileComplete } from "../../lib/profileCompletion.js";
 import { resolveProfileLocation } from "../../lib/geocode.js";
 import type { CompleteProfileInput, LoginInput, RegisterInput } from "./auth.validators.js";
@@ -63,6 +70,105 @@ const exposeOtpOnMailFailure = (): boolean =>
  * Resolves with `devCode` only under the escape hatch above — otherwise a
  * delivery failure surfaces as 503 so the UI can tell the user to retry.
  */
+/**
+ * Store the proof-of-study document a sign-up is about to be submitted with.
+ *
+ * This is the only upload path in the application with no session in front of
+ * it, and it has to be: the document is collected *before* the email is
+ * verified, which is before there is an account to own the object or a token to
+ * authorise it. Four things keep that from being an open door —
+ *
+ *  - the route is behind `authLimiter`, the same limiter as sign-up itself;
+ *  - the type is checked here against `IDENTITY_DOCUMENT_MIME_TYPES` rather
+ *    than trusted from the header alone;
+ *  - the size is checked against the bytes actually received, not a declared
+ *    number, because there is nothing here to declare one; and
+ *  - a row that no registration ever claims is swept, with its object, by
+ *    `jobs/pendingUploadCleanup.ts`.
+ *
+ * Returns the row's id, not the key. The caller never learns where the file
+ * went, so a guessed or stolen id is worth nothing beyond a single claim, and
+ * `register()` is the only thing that can turn one into a stored document.
+ */
+export const storeIdentityDocument = async (input: {
+  fileName: string;
+  contentType: string;
+  body: Buffer;
+}): Promise<{ documentId: string }> => {
+  const contentType = input.contentType.split(";")[0].trim().toLowerCase();
+  if (!(IDENTITY_DOCUMENT_MIME_TYPES as readonly string[]).includes(contentType)) {
+    throw BadRequest("Upload a JPG, PNG, WEBP or PDF of your document.");
+  }
+  if (input.body.length === 0) throw BadRequest("That file is empty.");
+  if (input.body.length > UPLOAD_MAX_BYTES.identity) {
+    throw BadRequest(
+      `That file is too large — the limit is ${Math.round(UPLOAD_MAX_BYTES.identity / (1024 * 1024))} MB.`,
+    );
+  }
+
+  // The row is created first so a stored object always has something pointing
+  // at it: an insert that fails after a successful upload would leave a file
+  // the cleanup job cannot see.
+  const pending = await prisma.pendingIdentityDocument.create({
+    data: {
+      // Replaced below with the real key. A placeholder rather than a nullable
+      // column, so the unique index still guards the claim.
+      objectKey: `pending:${crypto.randomUUID()}`,
+      contentType,
+      sizeBytes: input.body.length,
+      fileName: input.fileName.slice(0, 200),
+    },
+  });
+
+  try {
+    const stored = await getStorage().upload({
+      fileName: input.fileName,
+      contentType,
+      scope: "identity",
+      // No account exists yet, so the key's owner segment is this upload's own
+      // id. `uploads.service.ts` resolves the real owner through `Profile`.
+      ownerId: pending.id,
+      body: input.body,
+    });
+    await prisma.pendingIdentityDocument.update({
+      where: { id: pending.id },
+      data: { objectKey: stored.key },
+    });
+  } catch (err) {
+    await prisma.pendingIdentityDocument
+      .delete({ where: { id: pending.id } })
+      .catch(() => undefined);
+    logger.error({ err }, "[auth] failed to store a sign-up identity document");
+    throw ServiceUnavailable("We couldn't store that document. Please try again.");
+  }
+
+  return { documentId: pending.id };
+};
+
+/**
+ * Exchange an upload id for the key to write onto the new profile.
+ *
+ * Single-use by construction: the conditional `updateMany` on `claimedAt` is
+ * the claim, so two registrations racing for one document — or one id replayed
+ * — leave exactly one winner. Expiry is checked here too, so a document the
+ * cleanup job has not reached yet still cannot be claimed after its window.
+ */
+const claimIdentityDocument = async (documentId: string): Promise<string> => {
+  const cutoff = new Date(Date.now() - PENDING_UPLOAD_RETENTION_HOURS * 60 * 60 * 1000);
+  const claimed = await prisma.pendingIdentityDocument.updateMany({
+    where: { id: documentId, claimedAt: null, createdAt: { gte: cutoff } },
+    data: { claimedAt: new Date() },
+  });
+  if (claimed.count !== 1) {
+    throw BadRequest(
+      "That document upload has expired or was already used. Please upload it again.",
+    );
+  }
+  const row = await prisma.pendingIdentityDocument.findUnique({ where: { id: documentId } });
+  if (!row) throw BadRequest("That document upload could not be found. Please upload it again.");
+  return row.objectKey;
+};
+
 export const sendRegistrationOtp = async (email: string): Promise<{ devCode?: string }> => {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw Conflict("Email already registered");
@@ -149,6 +255,14 @@ export const register = async (input: RegisterInput) => {
 
   await consumeRegistrationOtp(input.email, input.otp);
 
+  /*
+   * Claimed after the OTP, before the account. If the create below fails the
+   * document stays claimed and effectively orphaned — which is the right way
+   * round: re-registering asks for a fresh upload, whereas an unclaimed id that
+   * survived a failure could be replayed onto a different account.
+   */
+  const identityDocumentKey = await claimIdentityDocument(input.identityDocumentId);
+
   // Hardcoded, never taken from the request. The only paths to ADMIN are an
   // existing admin granting it and `seed-admin.ts` bootstrapping the first one.
   const role: AppRoleName = "ALUMNI";
@@ -189,6 +303,8 @@ export const register = async (input: RegisterInput) => {
             bio: input.bio || undefined,
             currentCompany: input.currentCompany,
             currentRole: input.currentRole,
+            // What the reviewing admin actually checks the application against.
+            identityDocumentKey,
           },
         },
         preferences: { create: {} },

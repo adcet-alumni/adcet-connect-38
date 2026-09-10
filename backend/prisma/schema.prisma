@@ -211,6 +211,12 @@ model Profile {
   bio         String?
   avatarKey   String? // storage object key
   bannerKey   String? // profile cover banner storage key
+  /// Proof that this person actually studied here — a library card, marksheet,
+  /// leaving certificate or degree certificate, uploaded during sign-up and
+  /// shown to the admin reviewing the account. The `identity` scope is private:
+  /// only the owner and an admin can ever fetch it. Nullable because accounts
+  /// created before sign-up asked for one still exist.
+  identityDocumentKey String?
   phone       String?
   city        String?
   country     String? @default("India")
@@ -1134,4 +1140,29 @@ model ArchivedContent {
   @@unique([kind, sourceId])
   @@index([kind, createdAt])
   @@index([kind, status])
+}
+
+/// A sign-up identity document, uploaded before the account exists.
+///
+/// The upload has to happen before the email is verified — that is the point at
+/// which the office is given something to check — so there is no user to own
+/// the object and no session to authorise it. This row is the bridge: the
+/// anonymous upload endpoint stores the file and returns this row's id, and
+/// `register()` exchanges that id for the key it writes onto the new profile.
+///
+/// `claimedAt` is what makes the exchange single-use: one uploaded document
+/// belongs to one account. Rows that are never claimed — an abandoned sign-up,
+/// or an upload nobody followed through on — are swept with their objects by
+/// `jobs/pendingUploadCleanup.ts`, which is what stops an unauthenticated
+/// endpoint filling the bucket.
+model PendingIdentityDocument {
+  id          String    @id @default(uuid())
+  objectKey   String    @unique
+  contentType String
+  sizeBytes   Int
+  fileName    String
+  createdAt   DateTime  @default(now())
+  claimedAt   DateTime?
+
+  @@index([claimedAt, createdAt])
 }

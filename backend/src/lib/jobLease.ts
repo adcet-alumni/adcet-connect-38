@@ -18,6 +18,7 @@ export const JOB_LEASES = {
   resumeCleanup: "resume-cleanup",
   donationPurge: "donation-purge",
   contentRetention: "content-retention",
+  pendingUploadCleanup: "pending-upload-cleanup",
   tokenCleanup: "token-cleanup",
 } as const;
 
