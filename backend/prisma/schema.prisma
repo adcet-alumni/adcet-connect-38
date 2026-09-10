@@ -177,6 +177,9 @@ model RefreshToken {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  /// `jobs/tokenCleanup.ts` sweeps on age. Without this the nightly deleteMany
+  /// is a sequential scan of every token the platform has ever issued.
+  @@index([createdAt])
 }
 
 model PasswordResetToken {
@@ -189,6 +192,8 @@ model PasswordResetToken {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  /// Swept by age — see `RefreshToken`.
+  @@index([createdAt])
 }
 
 /// One-time codes emailed during sign-up to verify the address BEFORE the
@@ -203,6 +208,8 @@ model EmailVerificationOtp {
   createdAt  DateTime  @default(now())
 
   @@index([email])
+  /// Swept on expiry rather than age: a ten-minute code has no audit value.
+  @@index([expiresAt])
 }
 
 model Profile {

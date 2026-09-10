@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { api, API_BASE_URL } from "@/lib/api";
 import { IDENTITY_ACCEPT, identityDocumentList } from "@/lib/identity";
@@ -712,6 +712,13 @@ const AuthPage = () => {
             Already have an account?{" "}
             <button onClick={() => setActiveTab("login")} className="text-accent font-medium hover:underline">Sign in</button>
           </p>
+          {/* Sign-up is where the most personal data on the portal is handed
+              over — a marksheet included — so the policy is one tap away from
+              the form rather than only in the footer. */}
+          <p className="text-center text-xs text-muted-foreground mt-3">
+            By creating an account you agree to our{" "}
+            <Link to="/privacy" className="text-accent hover:underline">Privacy Policy</Link>.
+          </p>
         </motion.div>
       </div>
       )}
@@ -766,6 +773,9 @@ const AuthPage = () => {
           <p className="text-center text-sm text-muted-foreground mt-6">
             Don't have an account?{" "}
             <button onClick={() => setActiveTab("register")} className="text-accent font-medium hover:underline">Register</button>
+          </p>
+          <p className="text-center text-xs text-muted-foreground mt-3">
+            <Link to="/privacy" className="hover:text-foreground hover:underline">Privacy Policy</Link>
           </p>
         </motion.div>
       </div>

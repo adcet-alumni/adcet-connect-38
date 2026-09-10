@@ -49,6 +49,7 @@ const GalleryPage = route("/gallery", () => import("./pages/GalleryPage"));
 const AlumniMapPage = route("/alumni-map", () => import("./pages/AlumniMapPage"));
 const TestimonialsPage = route("/testimonials", () => import("./pages/TestimonialsPage"));
 const SupportPage = route("/support", () => import("./pages/SupportPage"));
+const PrivacyPolicyPage = route("/privacy", () => import("./pages/PrivacyPolicyPage"));
 const DashboardLayout = route("/dashboard", () => import("./components/DashboardLayout"));
 const DashboardHome = route("/dashboard/home", () => import("./pages/DashboardHome"));
 const FeedPage = route("/dashboard/feed", () => import("./pages/FeedPage"));
@@ -145,6 +146,7 @@ const App = () => (
               {/* Reached only from the landing-page carousel — deliberately not in the nav. */}
               <Route path="/testimonials" element={<TestimonialsPage />} />
               <Route path="/support" element={<SupportPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
               {/* The shareable link, for readers with no session. Members open
                   /dashboard/achievements/:id instead, which keeps the portal
                   shell — see PublicAchievementPage. */}
