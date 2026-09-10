@@ -250,3 +250,32 @@ export type DonationPaymentMethod = (typeof DONATION_PAYMENT_METHODS)[number];
  * ledger doesn't accumulate claims the office already dismissed.
  */
 export const DONATION_ARCHIVE_RETENTION_DAYS = 30;
+
+/**
+ * How long a job posting lives.
+ *
+ * `VISIBLE_DAYS` is how long members see it in the listings; `RETENTION_DAYS`
+ * is when `jobs/contentRetention.ts` deletes it. The gap between the two is
+ * deliberate and not slack: an expired posting disappears from the board but
+ * the alumnus who posted it can still open it and read the applications for
+ * another fortnight, which is exactly when they are shortlisting.
+ *
+ * Both are measured from the posting's effective expiry — `Job.expiresAt` when
+ * an admin has set one, otherwise `createdAt + VISIBLE_DAYS`. That is what
+ * makes `expiresAt` an extension rather than a second, competing rule; see
+ * `lib/retention.ts`, which is the only place either number is applied.
+ */
+export const JOB_RETENTION = {
+  VISIBLE_DAYS: 30,
+  /** Days after posting, when nothing has extended it. */
+  RETENTION_DAYS: 45,
+} as const;
+
+/**
+ * How long a past event is kept: six months after it finished.
+ *
+ * Measured from `endsAt` when the event declared one, otherwise `startsAt` — a
+ * multi-day reunion is "past" when it ends, not when it opens. Upcoming events
+ * are never swept, however long ago they were created.
+ */
+export const EVENT_RETENTION_MONTHS = 6;

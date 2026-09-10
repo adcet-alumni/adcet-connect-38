@@ -17,6 +17,7 @@ export const JOB_LEASES = {
   geoBackfill: "geo-backfill",
   resumeCleanup: "resume-cleanup",
   donationPurge: "donation-purge",
+  contentRetention: "content-retention",
   tokenCleanup: "token-cleanup",
 } as const;
 

@@ -9,21 +9,36 @@ import { sendBulkEmails } from "../../lib/mailer.js";
 import { wrapHtmlEmail } from "../../lib/email-templates.js";
 import { getStorage } from "../../storage/index.js";
 
-/** Aggregate counts feeding the public analytics dashboard. */
+/**
+ * Aggregate counts feeding the public analytics dashboard.
+ *
+ * "Jobs posted" and "events held" are running totals, so they have to include
+ * what retention has since deleted — otherwise the college's numbers would
+ * shrink every night as postings aged out. `ArchivedContent` is where those
+ * rows' dimensions survive; see `jobs/contentRetention.ts`.
+ */
 export const overview = async () => {
-  const [users, alumni, events, jobs, achievements, donations] = await Promise.all([
+  const [users, alumni, events, jobs, achievements, donations, archived] = await Promise.all([
     prisma.user.count({ where: { status: "APPROVED" } }),
     prisma.userRole.count({ where: { role: "ALUMNI", user: { status: "APPROVED" } } }),
     prisma.event.count({ where: { status: "APPROVED" } }),
     prisma.job.count({ where: { status: "APPROVED" } }),
     prisma.achievement.count({ where: { status: "APPROVED" } }),
     prisma.donation.aggregate({ where: { status: "RECEIVED" }, _sum: { amount: true }, _count: true }),
+    prisma.archivedContent.groupBy({
+      by: ["kind"],
+      where: { status: "APPROVED" },
+      _count: { _all: true },
+    }),
   ]);
+  const archivedOf = (kind: "JOB" | "EVENT") =>
+    archived.find((a) => a.kind === kind)?._count._all ?? 0;
+
   return {
     totalUsers: users,
     totalAlumni: alumni,
-    totalEvents: events,
-    totalJobs: jobs,
+    totalEvents: events + archivedOf("EVENT"),
+    totalJobs: jobs + archivedOf("JOB"),
     totalAchievements: achievements,
     totalDonationsAmount: donations._sum.amount ?? 0,
     totalDonationsCount: donations._count,
@@ -352,6 +367,15 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
     ...(from || to ? { createdAt: { ...(from && { gte: from }), ...(to && { lte: to }) } } : {}),
     ...(dept && { departments: { has: dept } }),
   };
+  /**
+   * The same filter against `ArchivedContent`, whose `createdAt` and
+   * `departments` are copied verbatim from the row it replaced — so a date
+   * range or a department selects the same postings on either side of a purge.
+   */
+  const archivedWhere: Prisma.ArchivedContentWhereInput = {
+    ...(from || to ? { createdAt: { ...(from && { gte: from }), ...(to && { lte: to }) } } : {}),
+    ...(dept && { departments: { has: dept } }),
+  };
   const deptInArray = (column: Prisma.Sql) =>
     dept ? Prisma.sql`AND ${dept} = ANY(${column})` : Prisma.empty;
 
@@ -375,28 +399,61 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
           : Prisma.empty}
       GROUP BY 1, 2`,
 
+    /*
+     * Live rows plus the ones retention has deleted.
+     *
+     * A job disappears from the platform after 45 days and an event six months
+     * after it ran, but the month it was posted in must not lose it — a chart
+     * that quietly shrank as content aged out would be worse than no chart.
+     * `ArchivedContent` keeps each purged row's month, status and departments
+     * verbatim, so the union is over identical shapes and the outer `sum`
+     * folds a month that has rows on both sides.
+     */
     prisma.$queryRaw<MonthStatusRow[]>`
-      SELECT ${monthOf(Prisma.sql`e."createdAt"`)} AS month,
-             e.status::text AS status,
-             count(*)::int AS count
-      FROM "Event" e
-      WHERE TRUE
-        ${createdBetween(Prisma.sql`e."createdAt"`, from, to)}
-        ${deptInArray(Prisma.sql`e.departments`)}
-      GROUP BY 1, 2`,
+      SELECT month, status, sum(count)::int AS count FROM (
+        SELECT ${monthOf(Prisma.sql`e."createdAt"`)} AS month,
+               e.status::text AS status,
+               count(*)::int AS count
+        FROM "Event" e
+        WHERE TRUE
+          ${createdBetween(Prisma.sql`e."createdAt"`, from, to)}
+          ${deptInArray(Prisma.sql`e.departments`)}
+        GROUP BY 1, 2
+        UNION ALL
+        SELECT ${monthOf(Prisma.sql`a."createdAt"`)} AS month,
+               a.status::text AS status,
+               count(*)::int AS count
+        FROM "ArchivedContent" a
+        WHERE a.kind = 'EVENT'
+          ${createdBetween(Prisma.sql`a."createdAt"`, from, to)}
+          ${deptInArray(Prisma.sql`a.departments`)}
+        GROUP BY 1, 2
+      ) t GROUP BY 1, 2`,
 
     // `isClosed` rides along so "open jobs" is a filter over these rows rather
-    // than a sixth query.
+    // than a sixth query. An archived job keeps the flag it was purged with.
     prisma.$queryRaw<(MonthStatusRow & { isClosed: boolean })[]>`
-      SELECT ${monthOf(Prisma.sql`j."createdAt"`)} AS month,
-             j.status::text AS status,
-             j."isClosed" AS "isClosed",
-             count(*)::int AS count
-      FROM "Job" j
-      WHERE TRUE
-        ${createdBetween(Prisma.sql`j."createdAt"`, from, to)}
-        ${deptInArray(Prisma.sql`j.departments`)}
-      GROUP BY 1, 2, 3`,
+      SELECT month, status, "isClosed", sum(count)::int AS count FROM (
+        SELECT ${monthOf(Prisma.sql`j."createdAt"`)} AS month,
+               j.status::text AS status,
+               j."isClosed" AS "isClosed",
+               count(*)::int AS count
+        FROM "Job" j
+        WHERE TRUE
+          ${createdBetween(Prisma.sql`j."createdAt"`, from, to)}
+          ${deptInArray(Prisma.sql`j.departments`)}
+        GROUP BY 1, 2, 3
+        UNION ALL
+        SELECT ${monthOf(Prisma.sql`a."createdAt"`)} AS month,
+               a.status::text AS status,
+               coalesce(a."isClosed", true) AS "isClosed",
+               count(*)::int AS count
+        FROM "ArchivedContent" a
+        WHERE a.kind = 'JOB'
+          ${createdBetween(Prisma.sql`a."createdAt"`, from, to)}
+          ${deptInArray(Prisma.sql`a.departments`)}
+        GROUP BY 1, 2, 3
+      ) t GROUP BY 1, 2, 3`,
 
     // Bucketed by settlement date, filtered by creation date — see the note at
     // the top. `sum` over `int` returns `bigint`, which does not survive
@@ -421,7 +478,7 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
       GROUP BY 1, 2`,
   ]);
 
-  const [totalAlumni, totalRsvps, byDepartment, byYear, topCompanies, topCities] =
+  const [totalAlumni, liveRsvps, archivedRsvps, byDepartment, byYear, topCompanies, topCities] =
     await Promise.all([
       prisma.profile.count({ where: alumniWhere }),
       /*
@@ -431,6 +488,15 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
        * single number.
        */
       prisma.eventRsvp.count({ where: { event: eventWhere } }),
+      /*
+       * The RSVPs of events retention has deleted. Their rows cascaded away
+       * with the event, so the count was frozen onto the archive row at purge
+       * time — this reads that, and the two are added below.
+       */
+      prisma.archivedContent.aggregate({
+        where: { kind: "EVENT", ...archivedWhere },
+        _sum: { rsvpCount: true },
+      }),
       prisma.profile.groupBy({
         by: ["department"],
         where: { user: { status: "APPROVED", ...NOT_ADMIN }, department: { not: null } },
@@ -473,7 +539,7 @@ export const adminInsights = async (f: { from?: Date; to?: Date; department?: st
       newRegistrations: total(userRows),
       newUsersApproved: totalWhere(userRows, "APPROVED"),
       events: total(eventRows),
-      totalRsvps,
+      totalRsvps: liveRsvps + (archivedRsvps._sum.rsvpCount ?? 0),
       jobs: total(jobRows),
       openJobs: total(jobRows.filter((j) => !j.isClosed)),
       achievements: total(achievementRows),

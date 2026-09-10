@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Briefcase, BriefcaseBusiness, ChevronRight, Download, Loader2, Lock, Unlock, Users } from "lucide-react";
+import { Briefcase, BriefcaseBusiness, ChevronRight, Clock, Download, Loader2, Lock, Trash2, Unlock, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -21,9 +21,22 @@ interface JobRow {
   company: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   isClosed: boolean;
+  /**
+   * Retention, as the API computes it — the poster's page is the only place
+   * these appear, and the rule lives on the server so there is no second copy
+   * of "30 days" to drift.
+   */
+  isExpired: boolean;
+  /** When it stops being shown on the board. */
+  expiresOn: string;
+  /** When it is deleted, applications and all. */
+  purgesOn: string;
   _count?: { applications: number };
 }
 interface Paginated<T> { items: T[] }
+
+const formatDay = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
 const MyJobPostsPage = () => {
   const qc = useQueryClient();
@@ -48,7 +61,10 @@ const MyJobPostsPage = () => {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">My Job Posts</h1>
-        <p className="text-muted-foreground text-sm mt-1">Track applications and close hiring when filled.</p>
+        <p className="text-muted-foreground text-sm mt-1">
+          Track applications and close hiring when filled. A posting stays on the board for 30 days,
+          then remains here for another 15 so you can finish shortlisting.
+        </p>
       </div>
 
       {isLoading ? (
@@ -71,6 +87,11 @@ const MyJobPostsPage = () => {
                 <div className="flex flex-col items-end gap-1">
                   <Badge variant="secondary" className="text-[10px] capitalize">{j.status.toLowerCase()}</Badge>
                   {j.isClosed && <Badge variant="outline" className="text-[10px]">Closed</Badge>}
+                  {j.isExpired && (
+                    <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">
+                      Off the board
+                    </Badge>
+                  )}
                 </div>
               </div>
 
@@ -80,6 +101,22 @@ const MyJobPostsPage = () => {
                 </span>
                 <ApplicationsSheet jobId={j.id} />
               </div>
+
+              {/* Content that disappears without warning is the complaint this
+                  avoids: an expired posting says when it goes, and a live one
+                  says when it will stop being shown. */}
+              {j.status === "APPROVED" && (
+                <p
+                  className={`text-[11px] flex items-center gap-1.5 ${
+                    j.isExpired ? "text-amber-600" : "text-muted-foreground"
+                  }`}
+                >
+                  {j.isExpired ? <Trash2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                  {j.isExpired
+                    ? `Removed from the board — this post and its applications are deleted on ${formatDay(j.purgesOn)}`
+                    : `On the board until ${formatDay(j.expiresOn)}`}
+                </p>
+              )}
 
               <div className="flex gap-2 pt-2 border-t border-border">
                 <Button

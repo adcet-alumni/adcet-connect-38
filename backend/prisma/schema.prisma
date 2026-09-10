@@ -86,6 +86,11 @@ enum PostReportStatus {
 ///           and purged by `jobs/donationPurge.ts` after
 ///           `DONATION_ARCHIVE_RETENTION_DAYS`.
 /// CANCELLED withdrawn before a decision — kept indefinitely, unlike REJECTED.
+enum ArchivedContentKind {
+  JOB
+  EVENT
+}
+
 enum DonationStatus {
   PLEDGED
   RECEIVED
@@ -1067,4 +1072,66 @@ model CollaborationRequest {
   @@index([type, status, createdAt])
   /// The alumnus's own "Actions" panel reads their own requests, newest first.
   @@index([userId, createdAt])
+}
+
+// =====================================================================
+// RETENTION ARCHIVE
+// =====================================================================
+
+/// A job or event that retention deleted, reduced to the numbers reporting
+/// needs.
+///
+/// Deleting a posting must not delete what was *counted* about it: the admin
+/// dashboard buckets jobs and events by month, status and department, and the
+/// CSV exports list what was posted. So `jobs/contentRetention.ts` writes one
+/// of these in the same transaction that removes the source row — the archive
+/// and the deletion succeed together or neither happens.
+///
+/// What is deliberately **not** here is the reason the row was purged:
+/// descriptions, requirements, attachments, applications, RSVPs, résumés,
+/// contact details, and any foreign key to the person who posted it. A name is
+/// kept because the reports already printed one; nothing that could reach the
+/// account is.
+model ArchivedContent {
+  id   String              @id @default(uuid())
+  kind ArchivedContentKind
+  /// The purged row's id. Unique per kind, so a sweep that half-failed and ran
+  /// again cannot count one posting into a month twice.
+  sourceId String
+
+  title       String
+  /// Denormalised at purge time — deliberately a string, not a relation.
+  authorName  String?
+  status      ApprovalStatus
+  /// Copied verbatim, so `<dept> = ANY(departments)` selects the same rows here
+  /// as it does on the live table.
+  departments String[]       @default([])
+  location    String?
+
+  // ── Jobs ──
+  company          String?
+  employmentType   EmploymentType?
+  vacancies        Int?
+  isClosed         Boolean?
+  closedAt         DateTime?
+  /// Frozen at purge time; the applications themselves are gone.
+  applicationCount Int             @default(0)
+
+  // ── Events ──
+  isOnline  Boolean?
+  chapterId String?
+  startsAt  DateTime?
+  endsAt    DateTime?
+  /// Frozen at purge time; the RSVPs themselves are gone.
+  rsvpCount Int       @default(0)
+
+  /// The **source row's** `createdAt`, not this row's. Every month bucket on
+  /// the dashboard reads it, so stamping it with the purge date would move
+  /// history forward.
+  createdAt  DateTime
+  archivedAt DateTime @default(now())
+
+  @@unique([kind, sourceId])
+  @@index([kind, createdAt])
+  @@index([kind, status])
 }

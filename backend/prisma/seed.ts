@@ -710,6 +710,56 @@ async function main() {
   // removes it once `archivedAt` is older than that.
   await ensureDonation(sneha.id, 2000, "REJECTED", campaigns.library.id, "UTR902411765408");
 
+  /*
+   * Two postings that retention has already been through.
+   *
+   * Seeded so a dev clone shows what the archive is *for*: a job is deleted 45
+   * days after it goes up and a past event six months after it runs, but the
+   * dashboard's monthly charts and the CSV exports still count them. Without a
+   * row here, that union is invisible until the worker has been running for a
+   * month and a half.
+   *
+   * Freshly seeded jobs and events are inside their windows, so the sweep
+   * leaves them alone — reseed if a long-idle database has aged them out.
+   */
+  console.log("🗄  Seeding archived (retention-purged) content…");
+  const ensureArchived = async (
+    kind: "JOB" | "EVENT",
+    sourceId: string,
+    data: Record<string, unknown>,
+  ) => {
+    await prisma.archivedContent.upsert({
+      where: { kind_sourceId: { kind, sourceId } },
+      update: {},
+      create: { kind, sourceId, ...data } as never,
+    });
+  };
+  await ensureArchived("JOB", "seed-archived-job-1", {
+    title: "Data Analyst (2025 intake)",
+    company: "TCS",
+    authorName: "Alice Patil",
+    status: "APPROVED",
+    departments: ["Computer Science and Engineering"],
+    location: "Mumbai",
+    employmentType: "FULL_TIME",
+    vacancies: 4,
+    isClosed: true,
+    applicationCount: 17,
+    createdAt: inDays(-210),
+  });
+  await ensureArchived("EVENT", "seed-archived-event-1", {
+    title: "Alumni Homecoming 2025",
+    authorName: "Admin User",
+    status: "APPROVED",
+    departments: [],
+    location: "ADCET Campus, Ashta",
+    isOnline: false,
+    startsAt: inDays(-260),
+    endsAt: inDays(-259),
+    rsvpCount: 143,
+    createdAt: inDays(-300),
+  });
+
   console.log("✅ Seeding RSVPs + Job applications…");
   const ensureRsvp = async (eventId: string, userId: string) => {
     await prisma.eventRsvp.upsert({

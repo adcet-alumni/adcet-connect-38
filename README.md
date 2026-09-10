@@ -63,6 +63,13 @@
 - **Jobs Board** — any user can post (admin approves), department-targeted email
   notifications on approval, file attachments, rich application flow with resume
   upload and cover letter, email to poster with applicant info + resume attachment.
+  A posting is shown for 30 days and deleted at 45 (the poster keeps access to
+  its applications in between); an admin can extend one with `expiresAt`.
+- **Retention** — expired jobs and events more than six months past are deleted
+  by a nightly worker job, along with their attachments and résumés. Each purge
+  first archives the row's reporting dimensions, so the dashboard's totals,
+  monthly trends and CSV exports keep counting content the platform no longer
+  stores.
 - **Achievements** — submission + moderation pipeline.
 - **Donations** — no payment gateway: the alumni office publishes a UPI QR,
   bank account and instructions from Admin → Settings; a donor pays there and

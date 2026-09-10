@@ -9,6 +9,7 @@ import { sendEmail, sendBulkEmails, type EmailAttachment } from "../../lib/maile
 import { jobApplicationEmail, jobNotificationEmail } from "../../lib/email-templates.js";
 import { getStorage } from "../../storage/index.js";
 import { logger } from "../../lib/logger.js";
+import { isJobExpired, jobRetentionDates, liveJobWhere } from "../../lib/retention.js";
 
 type Caller = { sub: string; roles: AppRoleName[] };
 const isAdmin = (c?: Caller) => !!c?.roles.includes("ADMIN");
@@ -34,6 +35,13 @@ export const list = async (
     ...(q.closed === undefined
       ? (isAdmin(caller) ? {} : { isClosed: false })
       : { isClosed: q.closed }),
+    /*
+     * A posting drops off the board once it expires — 30 days after it was
+     * put up, unless an admin extended it. Admins are exempt: the console has
+     * to show what the board is hiding, and the poster needs the fortnight of
+     * grace before retention deletes it to read the applications.
+     */
+    ...(isAdmin(caller) ? {} : liveJobWhere(new Date())),
     ...(q.company && { company: { contains: q.company, mode: "insensitive" } }),
     ...(q.location && { location: { contains: q.location, mode: "insensitive" } }),
     ...(q.employmentType && { employmentType: q.employmentType }),
@@ -115,6 +123,9 @@ export const apply = async (
   if (!job) throw NotFound("Job not found");
   if (job.isClosed) throw Forbidden("Applications are closed for this job");
   if (job.status !== "APPROVED") throw Forbidden("Job is not open for applications");
+  // The board stopped showing this one; a stale tab or a shared link must not
+  // be a way round that, and retention is about to delete it.
+  if (isJobExpired(job, new Date())) throw Forbidden("This posting has expired");
   const application = await prisma.jobApplication.upsert({
     where: { jobId_userId: { jobId, userId } },
     update: { ...data },
@@ -253,9 +264,18 @@ export const listApplications = async (caller: Caller, jobId: string) => {
 };
 
 /** Jobs posted by the caller (any status, including closed). */
+/**
+ * A poster's own listings — deliberately unfiltered by the 30-day window.
+ *
+ * The board hides an expired posting; its author still has to reach it, and
+ * the applications on it, for the fortnight before retention deletes it. So
+ * each row carries when it leaves the board and when it will be removed, and
+ * says so on the poster's page rather than letting content vanish unannounced.
+ */
 export const myPostedJobs = async (caller: Caller, q: PaginationQuery) => {
   const where: Prisma.JobWhereInput = { createdById: caller.sub };
-  const [items, total] = await Promise.all([
+  const now = new Date();
+  const [rows, total] = await Promise.all([
     prisma.job.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -264,6 +284,12 @@ export const myPostedJobs = async (caller: Caller, q: PaginationQuery) => {
     }),
     prisma.job.count({ where }),
   ]);
+  const items = rows.map((job) => ({
+    ...job,
+    ...jobRetentionDates(job),
+    /** True once the board has stopped showing it. */
+    isExpired: isJobExpired(job, now),
+  }));
   return { items, pagination: paginationMeta(total, q) };
 };
 

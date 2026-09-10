@@ -19,6 +19,7 @@ import { runEventReminders } from "./jobs/eventReminders.js";
 import { runGeoBackfill } from "./jobs/geoBackfill.js";
 import { runResumeCleanup } from "./jobs/resumeCleanup.js";
 import { runDonationPurge } from "./jobs/donationPurge.js";
+import { runContentRetention } from "./jobs/contentRetention.js";
 import { runTokenCleanup } from "./jobs/tokenCleanup.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -80,6 +81,20 @@ const JOBS: ScheduledJob[] = [
     leaseMs: 30 * 60_000,
     runAtStartup: true,
     run: () => runDonationPurge(),
+  },
+  {
+    /*
+     * Expired job postings and long-past events. Each purged row is archived
+     * to `ArchivedContent` in the same transaction that deletes it, so the
+     * dashboard's history survives the content — see the job's own notes.
+     * Bounded per run, but generous: the first sweep on an existing database
+     * has a backlog to work through, and it deletes storage objects one by one.
+     */
+    name: JOB_LEASES.contentRetention,
+    everyMs: DAY_MS,
+    leaseMs: 60 * 60_000,
+    runAtStartup: true,
+    run: () => runContentRetention(),
   },
   {
     /*

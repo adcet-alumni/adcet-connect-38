@@ -434,6 +434,32 @@ const chapterWhere = (chapterId?: string) =>
 
 type Row = Record<string, unknown>;
 
+/**
+ * Rows a report must include even though the content is gone.
+ *
+ * Retention deletes a job 45 days after it is posted and an event six months
+ * after it runs, keeping each one's reporting dimensions in `ArchivedContent`.
+ * An export that read only the live tables would therefore report *less*
+ * activity the longer the platform ran, which is precisely backwards. Both the
+ * jobs and the events report append these, flagged `Archived: Yes`, so a
+ * reader can tell a live posting from a remembered one.
+ */
+const archivedRows = (
+  kind: "JOB" | "EVENT",
+  f: ReportFilters,
+  created?: { gte?: Date; lte?: Date },
+) =>
+  prisma.archivedContent.findMany({
+    where: {
+      kind,
+      ...(created && { createdAt: created }),
+      ...(f.status && { status: f.status as never }),
+      ...(f.department && { departments: { has: f.department } }),
+    },
+    orderBy: { createdAt: "desc" },
+    take: MAX_ROWS,
+  });
+
 // A hard cap so a runaway export can never exhaust memory.
 const MAX_ROWS = 50_000;
 
@@ -585,26 +611,53 @@ const buildReport = async (
         orderBy: { startsAt: "desc" },
         take: MAX_ROWS,
       });
-      const rows: Row[] = events.map((e) => ({
-        Title: e.title,
-        Status: e.status,
-        Departments: e.departments.length ? e.departments.join("; ") : "All",
-        Chapter: e.chapter?.name ?? "All",
-        Mode: e.isOnline ? "Online" : "In-person",
-        Location: e.location ?? "",
-        "Starts On": dt(e.startsAt),
-        Capacity: e.capacity ?? "",
-        RSVPs: e._count.rsvps,
-        Organizer: fullName(e.createdBy),
-        "Created On": d10(e.createdAt),
-      }));
+      const archived = await archivedRows("EVENT", f, created);
+      const rows: Row[] = [
+        ...events.map((e) => ({
+          Title: e.title,
+          Status: e.status,
+          Departments: e.departments.length ? e.departments.join("; ") : "All",
+          Chapter: e.chapter?.name ?? "All",
+          Mode: e.isOnline ? "Online" : "In-person",
+          Location: e.location ?? "",
+          "Starts On": dt(e.startsAt),
+          Capacity: e.capacity ?? "",
+          RSVPs: e._count.rsvps,
+          Organizer: fullName(e.createdBy),
+          "Created On": d10(e.createdAt),
+          Archived: "No",
+        })),
+        ...archived.map((a) => ({
+          Title: a.title,
+          Status: a.status,
+          Departments: a.departments.length ? a.departments.join("; ") : "All",
+          // The chapter's name is not kept — only which chapter it was, and
+          // the chapter itself may since have been renamed or archived.
+          Chapter: a.chapterId ? "—" : "All",
+          Mode: a.isOnline ? "Online" : "In-person",
+          Location: a.location ?? "",
+          "Starts On": dt(a.startsAt),
+          Capacity: "",
+          // Frozen when the event was purged; the RSVPs went with it.
+          RSVPs: a.rsvpCount,
+          Organizer: a.authorName ?? "",
+          "Created On": d10(a.createdAt),
+          Archived: "Yes",
+        })),
+      ].sort((x, y) => String(y["Starts On"]).localeCompare(String(x["Starts On"])));
+
       return {
         rows,
         summary: {
-          Total: events.length,
-          Approved: events.filter((e) => e.status === "APPROVED").length,
+          Total: events.length + archived.length,
+          Approved:
+            events.filter((e) => e.status === "APPROVED").length +
+            archived.filter((a) => a.status === "APPROVED").length,
           Pending: events.filter((e) => e.status === "PENDING").length,
-          "Total RSVPs": events.reduce((s, e) => s + e._count.rsvps, 0),
+          "Total RSVPs":
+            events.reduce((s, e) => s + e._count.rsvps, 0) +
+            archived.reduce((s, a) => s + a.rsvpCount, 0),
+          "Archived (content deleted)": archived.length,
         },
       };
     }
@@ -665,26 +718,52 @@ const buildReport = async (
         orderBy: { createdAt: "desc" },
         take: MAX_ROWS,
       });
-      const rows: Row[] = jobs.map((j) => ({
-        Title: j.title,
-        Company: j.company,
-        Status: j.status,
-        "Open/Closed": j.isClosed ? "Closed" : "Open",
-        Type: j.employmentType,
-        Departments: j.departments.length ? j.departments.join("; ") : "All",
-        Location: j.location ?? "",
-        Vacancies: j.vacancies,
-        Applications: j._count.applications,
-        "Posted By": fullName(j.createdBy),
-        "Posted On": d10(j.createdAt),
-      }));
+      const archived = await archivedRows("JOB", f, created);
+      const rows: Row[] = [
+        ...jobs.map((j) => ({
+          Title: j.title,
+          Company: j.company,
+          Status: j.status,
+          "Open/Closed": j.isClosed ? "Closed" : "Open",
+          Type: j.employmentType,
+          Departments: j.departments.length ? j.departments.join("; ") : "All",
+          Location: j.location ?? "",
+          Vacancies: j.vacancies,
+          Applications: j._count.applications,
+          "Posted By": fullName(j.createdBy),
+          "Posted On": d10(j.createdAt),
+          Archived: "No",
+        })),
+        ...archived.map((a) => ({
+          Title: a.title,
+          Company: a.company ?? "",
+          Status: a.status,
+          "Open/Closed": a.isClosed ? "Closed" : "Open",
+          Type: a.employmentType ?? "",
+          Departments: a.departments.length ? a.departments.join("; ") : "All",
+          Location: a.location ?? "",
+          Vacancies: a.vacancies ?? "",
+          // Frozen when the posting was purged; the applications themselves
+          // went with it.
+          Applications: a.applicationCount,
+          "Posted By": a.authorName ?? "",
+          "Posted On": d10(a.createdAt),
+          Archived: "Yes",
+        })),
+      ].sort((x, y) => String(y["Posted On"]).localeCompare(String(x["Posted On"])));
+
       return {
         rows,
         summary: {
-          Total: jobs.length,
-          Approved: jobs.filter((j) => j.status === "APPROVED").length,
+          Total: jobs.length + archived.length,
+          Approved:
+            jobs.filter((j) => j.status === "APPROVED").length +
+            archived.filter((a) => a.status === "APPROVED").length,
           Open: jobs.filter((j) => !j.isClosed).length,
-          "Total Applications": jobs.reduce((s, j) => s + j._count.applications, 0),
+          "Total Applications":
+            jobs.reduce((s, j) => s + j._count.applications, 0) +
+            archived.reduce((s, a) => s + a.applicationCount, 0),
+          "Archived (content deleted)": archived.length,
         },
       };
     }

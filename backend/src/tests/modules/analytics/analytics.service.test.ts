@@ -34,9 +34,52 @@ describe("analytics.service — overview", () => {
     prismaMock.job.count.mockResolvedValueOnce(3);
     prismaMock.achievement.count.mockResolvedValueOnce(4);
     prismaMock.donation.aggregate.mockResolvedValueOnce({ _sum: { amount: null }, _count: 0 });
+    prismaMock.archivedContent.groupBy.mockResolvedValueOnce([]);
     const out = await svc.overview();
     expect(out.totalDonationsAmount).toBe(0);
     expect(out.totalUsers).toBe(10);
+  });
+
+  /**
+   * "Jobs posted" and "events held" are running totals. Retention deletes a
+   * posting after 45 days and an event six months after it runs, so a count
+   * that read only the live tables would shrink every night — the college's
+   * headline numbers would go *down* as the platform was used.
+   */
+  it("adds retention-archived rows to the job and event totals", async () => {
+    prismaMock.user.count.mockResolvedValueOnce(10);
+    prismaMock.userRole.count.mockResolvedValueOnce(8);
+    prismaMock.event.count.mockResolvedValueOnce(2);
+    prismaMock.job.count.mockResolvedValueOnce(3);
+    prismaMock.achievement.count.mockResolvedValueOnce(4);
+    prismaMock.donation.aggregate.mockResolvedValueOnce({ _sum: { amount: 0 }, _count: 0 });
+    prismaMock.archivedContent.groupBy.mockResolvedValueOnce([
+      { kind: "JOB", _count: { _all: 40 } },
+      { kind: "EVENT", _count: { _all: 7 } },
+    ]);
+
+    const out = await svc.overview();
+
+    expect(out.totalJobs).toBe(43);
+    expect(out.totalEvents).toBe(9);
+    // Only approved archived rows count, exactly as for the live tables.
+    const where = (prismaMock.archivedContent.groupBy.mock.calls[0][0] as any).where;
+    expect(where).toEqual({ status: "APPROVED" });
+  });
+
+  it("leaves the totals alone when nothing has been archived yet", async () => {
+    prismaMock.user.count.mockResolvedValueOnce(0);
+    prismaMock.userRole.count.mockResolvedValueOnce(0);
+    prismaMock.event.count.mockResolvedValueOnce(2);
+    prismaMock.job.count.mockResolvedValueOnce(3);
+    prismaMock.achievement.count.mockResolvedValueOnce(0);
+    prismaMock.donation.aggregate.mockResolvedValueOnce({ _sum: { amount: 0 }, _count: 0 });
+    prismaMock.archivedContent.groupBy.mockResolvedValueOnce([]);
+
+    const out = await svc.overview();
+
+    expect(out.totalJobs).toBe(3);
+    expect(out.totalEvents).toBe(2);
   });
 
   it("forwards aggregate amount when present", async () => {
@@ -46,6 +89,7 @@ describe("analytics.service — overview", () => {
     prismaMock.job.count.mockResolvedValueOnce(0);
     prismaMock.achievement.count.mockResolvedValueOnce(0);
     prismaMock.donation.aggregate.mockResolvedValueOnce({ _sum: { amount: 5000 }, _count: 5 });
+    prismaMock.archivedContent.groupBy.mockResolvedValueOnce([]);
     const out = await svc.overview();
     expect(out.totalDonationsAmount).toBe(5000);
   });
@@ -167,9 +211,14 @@ describe("analytics.service — adminInsights", () => {
       .mockResolvedValueOnce([{ month: "2024-03", status: "APPROVED", count: 1 }]);
   };
 
-  const stubAggregates = () => {
+  const stubAggregates = (archivedRsvps: number | null = 0) => {
     prismaMock.profile.count.mockResolvedValueOnce(42);
     prismaMock.eventRsvp.count.mockResolvedValueOnce(3);
+    // The RSVPs of events retention has already deleted; their rows cascaded
+    // away, so the count was frozen onto the archive at purge time.
+    prismaMock.archivedContent.aggregate.mockResolvedValueOnce({
+      _sum: { rsvpCount: archivedRsvps },
+    });
     prismaMock.profile.groupBy
       .mockResolvedValueOnce([{ department: "Computer Science and Engineering", _count: { _all: 10 } }])
       .mockResolvedValueOnce([{ graduationYear: 2020, _count: { _all: 5 } }])
@@ -194,6 +243,29 @@ describe("analytics.service — adminInsights", () => {
     // Pledges reach neither the count nor the amount.
     expect(out.kpis.donationsReceived).toBe(2);
     expect(out.kpis.donationAmount).toBe(5000);
+  });
+
+  /**
+   * An event is deleted six months after it runs, taking its RSVP rows with
+   * it. Reading only `EventRsvp` would therefore report attendance falling
+   * every month regardless of how well attended anything was.
+   */
+  it("adds the RSVPs of purged events to the live count", async () => {
+    stubTrendQueries();
+    stubAggregates(143);
+
+    const out = await svc.adminInsights({});
+
+    expect(out.kpis.totalRsvps).toBe(3 + 143);
+  });
+
+  it("treats no archived events as zero rather than NaN", async () => {
+    stubTrendQueries();
+    stubAggregates(null);
+
+    const out = await svc.adminInsights({});
+
+    expect(out.kpis.totalRsvps).toBe(3);
   });
 
   it("collapses statuses into one point per month, oldest first", async () => {

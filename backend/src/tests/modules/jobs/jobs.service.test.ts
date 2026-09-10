@@ -49,6 +49,161 @@ describe("modules/jobs/service — list", () => {
   });
 });
 
+/**
+ * A posting drops off the board 30 days after it goes up and is deleted at 45.
+ * The gap is deliberate — the poster reads the applications during it — so what
+ * these pin is that the *board* respects the window while the console does not,
+ * and that nothing can be applied to once it has closed.
+ */
+describe("modules/jobs/service — the 30-day window", () => {
+  const whereOf = () => (prismaMock.job.findMany.mock.calls[0][0] as any).where;
+
+  const listAs = async (caller: typeof ALUMNI | typeof ADMIN) => {
+    prismaMock.job.findMany.mockResolvedValueOnce([]);
+    prismaMock.job.count.mockResolvedValueOnce(0);
+    await svc.list({ page: 1, pageSize: 10 } as any, caller);
+  };
+
+  it("filters a member's listing to live postings", async () => {
+    await listAs(ALUMNI);
+    const where = whereOf();
+    // The predicate itself is pinned in `lib/retention.test.ts`; here it only
+    // has to be present, and to be the one from that module.
+    expect(where.OR).toHaveLength(2);
+    expect(where.OR[0]).toHaveProperty("expiresAt.gt");
+    expect(where.OR[1]).toMatchObject({ expiresAt: null });
+    expect(where.OR[1].createdAt.gt).toBeInstanceOf(Date);
+  });
+
+  /**
+   * The console has to show what the board is hiding: an admin moderating or
+   * reporting on postings must see the expired ones, and so must the poster
+   * reaching their applications in the grace period.
+   */
+  it("does not filter an admin's listing", async () => {
+    await listAs(ADMIN);
+    expect(whereOf().OR).toBeUndefined();
+  });
+
+  it("sets the window 30 days back", async () => {
+    await listAs(ALUMNI);
+    const cutoff: Date = whereOf().OR[1].createdAt.gt;
+    const days = (Date.now() - cutoff.getTime()) / (24 * 60 * 60 * 1000);
+    expect(days).toBeCloseTo(30, 1);
+  });
+
+  it("refuses an application to a posting past its window", async () => {
+    prismaMock.job.findUnique.mockResolvedValueOnce({
+      id: "j-old",
+      status: "APPROVED",
+      isClosed: false,
+      expiresAt: null,
+      createdAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+    });
+
+    await expect(
+      svc.apply("j-old", "u-2", { resumeKey: "resume/u-2/cv.pdf" }),
+    ).rejects.toMatchObject({ status: 403 });
+    // Nothing was written — a stale link must not create an application to a
+    // posting that is about to be deleted.
+    expect(prismaMock.jobApplication.upsert).not.toHaveBeenCalled();
+  });
+
+  it("accepts an application to a posting inside its window", async () => {
+    prismaMock.job.findUnique.mockResolvedValueOnce({
+      id: "j-new",
+      status: "APPROVED",
+      isClosed: false,
+      expiresAt: null,
+      createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      createdById: "u-1",
+      title: "Backend Engineer",
+      company: "Acme",
+    });
+    prismaMock.jobApplication.upsert.mockResolvedValueOnce({ id: "a-1" });
+    prismaMock.user.findUnique.mockResolvedValueOnce(null);
+
+    await svc.apply("j-new", "u-2", { resumeKey: "resume/u-2/cv.pdf" });
+
+    expect(prismaMock.jobApplication.upsert).toHaveBeenCalled();
+  });
+
+  /** An extension postpones the hiding, so it must postpone the refusal too. */
+  it("accepts an application to an old posting an admin extended", async () => {
+    prismaMock.job.findUnique.mockResolvedValueOnce({
+      id: "j-ext",
+      status: "APPROVED",
+      isClosed: false,
+      expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+      createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+      createdById: "u-1",
+      title: "Backend Engineer",
+      company: "Acme",
+    });
+    prismaMock.jobApplication.upsert.mockResolvedValueOnce({ id: "a-1" });
+    prismaMock.user.findUnique.mockResolvedValueOnce(null);
+
+    await svc.apply("j-ext", "u-2", { resumeKey: "resume/u-2/cv.pdf" });
+
+    expect(prismaMock.jobApplication.upsert).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The poster's own list is the one place an expiring posting is announced. It
+ * is deliberately *not* filtered by the window — the author reads applications
+ * during the grace period — so instead each row says when it leaves the board
+ * and when it will be deleted.
+ */
+describe("modules/jobs/service — myPostedJobs", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  const listMine = async (job: Record<string, unknown>) => {
+    prismaMock.job.findMany.mockResolvedValueOnce([job]);
+    prismaMock.job.count.mockResolvedValueOnce(1);
+    const out = await svc.myPostedJobs(ALUMNI, { page: 1, pageSize: 10 } as any);
+    return out.items[0] as any;
+  };
+
+  it("shows the poster their own expired postings", async () => {
+    prismaMock.job.findMany.mockResolvedValueOnce([]);
+    prismaMock.job.count.mockResolvedValueOnce(0);
+    await svc.myPostedJobs(ALUMNI, { page: 1, pageSize: 10 } as any);
+    const where = (prismaMock.job.findMany.mock.calls[0][0] as any).where;
+    // Owner only — and no retention filter, or the grace period would be
+    // useless to the person it exists for.
+    expect(where).toEqual({ createdById: "u-1" });
+  });
+
+  it("dates a live posting's exit from the board 30 days after it went up", async () => {
+    const createdAt = new Date(Date.now() - 2 * DAY);
+    const row = await listMine({ id: "j-1", createdAt, expiresAt: null });
+
+    expect(row.isExpired).toBe(false);
+    expect(row.expiresOn.getTime()).toBe(createdAt.getTime() + 30 * DAY);
+    // ...and its deletion 15 days after that.
+    expect(row.purgesOn.getTime()).toBe(createdAt.getTime() + 45 * DAY);
+  });
+
+  it("flags an expired posting and dates its deletion", async () => {
+    const createdAt = new Date(Date.now() - 35 * DAY);
+    const row = await listMine({ id: "j-2", createdAt, expiresAt: null });
+
+    expect(row.isExpired).toBe(true);
+    expect(row.purgesOn.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("dates an extended posting from the extension, not from when it was posted", async () => {
+    const createdAt = new Date(Date.now() - 200 * DAY);
+    const expiresAt = new Date(Date.now() + 10 * DAY);
+    const row = await listMine({ id: "j-3", createdAt, expiresAt });
+
+    expect(row.isExpired).toBe(false);
+    expect(row.expiresOn.getTime()).toBe(expiresAt.getTime());
+    expect(row.purgesOn.getTime()).toBe(expiresAt.getTime() + 15 * DAY);
+  });
+});
+
 describe("modules/jobs/service — branch coverage extras", () => {
   it("list applies all optional filters at once", async () => {
     prismaMock.job.findMany.mockResolvedValueOnce([]);
