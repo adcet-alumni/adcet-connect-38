@@ -1,11 +1,13 @@
 import { z } from "zod";
-import { UPLOAD_SCOPES, UPLOAD_MAX_BYTES, type UploadScope } from "../../config/constants.js";
+import { REQUESTABLE_UPLOAD_SCOPES, UPLOAD_MAX_BYTES, type UploadScope } from "../../config/constants.js";
 
 export const presignSchema = z
   .object({
     fileName: z.string().min(1).max(255),
     contentType: z.string().min(1).max(100),
-    scope: z.enum(UPLOAD_SCOPES as unknown as [string, ...string[]]),
+    // Not every scope: `backup` is written only by the worker and can never be
+    // named by a request — see `UNREACHABLE_UPLOAD_SCOPES`.
+    scope: z.enum(REQUESTABLE_UPLOAD_SCOPES as unknown as [string, ...string[]]),
     /**
      * Byte length of the file about to be sent. Mandatory: it is the only
      * thing the API ever learns about a browser -> storage upload, and for the

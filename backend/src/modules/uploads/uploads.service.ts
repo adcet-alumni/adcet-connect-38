@@ -12,7 +12,12 @@
 import { prisma } from "../../lib/prisma.js";
 import { BadRequest, Forbidden, NotFound } from "../../lib/errors.js";
 import { getStorage } from "../../storage/index.js";
-import { UPLOAD_SCOPES, UPLOAD_MAX_BYTES, type UploadScope } from "../../config/constants.js";
+import {
+  UNREACHABLE_UPLOAD_SCOPES,
+  UPLOAD_SCOPES,
+  UPLOAD_MAX_BYTES,
+  type UploadScope,
+} from "../../config/constants.js";
 
 /**
  * Scopes whose objects are *not* publicly delivered. Everything else is
@@ -32,6 +37,20 @@ import { UPLOAD_SCOPES, UPLOAD_MAX_BYTES, type UploadScope } from "../../config/
  * user id: `authorizeRead` resolves the real owner through `Profile` instead.
  */
 const PRIVATE_SCOPES = new Set<UploadScope>(["resume", "receipt", "donation-proof", "identity"]);
+
+/**
+ * Scopes this module must never touch, for anybody, including an admin.
+ *
+ * `backup` holds `pg_dump` output — every password hash, every email address,
+ * every phone number and every record on the platform in one object. Nothing
+ * about the portal needs to read one: a restore is done by whoever holds the
+ * bucket credentials, from outside the application. Treating it as merely
+ * "private" would leave one compromised admin session between an attacker and
+ * the entire database, so it is refused before authorisation is even
+ * considered, and reported as `NotFound` rather than `Forbidden` — the API
+ * should not confirm that such an object exists.
+ */
+const UNREACHABLE_SCOPES = new Set<string>(UNREACHABLE_UPLOAD_SCOPES);
 
 const SCOPES = new Set<string>(UPLOAD_SCOPES);
 
@@ -69,6 +88,7 @@ export interface Caller {
 const authorizeRead = async (caller: Caller, key: string): Promise<void> => {
   const parts = parseObjectKey(key);
   if (!parts) throw NotFound("No such object");
+  if (UNREACHABLE_SCOPES.has(parts.scope)) throw NotFound("No such object");
   if (!PRIVATE_SCOPES.has(parts.scope)) return;
   if (caller.isAdmin || parts.ownerId === caller.id) return;
 
@@ -103,6 +123,7 @@ const authorizeRead = async (caller: Caller, key: string): Promise<void> => {
 const authorizeWrite = (caller: Caller, key: string): void => {
   const parts = parseObjectKey(key);
   if (!parts) throw NotFound("No such object");
+  if (UNREACHABLE_SCOPES.has(parts.scope)) throw NotFound("No such object");
   if (caller.isAdmin || parts.ownerId === caller.id) return;
   throw Forbidden("You do not have access to this file");
 };

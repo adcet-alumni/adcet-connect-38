@@ -45,6 +45,9 @@
 
 ---
 
+Deployment sizing, the load-testing plan and backup/restore live in
+[DEPLOY.md](DEPLOY.md).
+
 ## Features
 
 - **Authentication & RBAC** — email + password only (there is no social

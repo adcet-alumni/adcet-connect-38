@@ -107,6 +107,28 @@ const schema = z.object({
 
   LOG_LEVEL: z.string().default("info"),
 
+  // === Database backup (jobs/databaseBackup.ts) ===
+  /*
+   * Off unless asked for. A dump is the whole platform in one object — every
+   * password hash and email address — so it is never written anywhere by
+   * default, and DEPLOY.md is explicit that the destination bucket must be
+   * private with its own credentials.
+   */
+  /*
+   * Parsed explicitly, not with `z.coerce.boolean()` — that applies JS
+   * `Boolean()`, under which the string "false" is `true`. An env var that
+   * turns a feature on when you set it to "false" is the wrong way round for
+   * anything, and especially for this one.
+   */
+  DB_BACKUP_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** Monthly backups retained. 12 is a year; older ones are pruned. */
+  DB_BACKUP_KEEP: z.coerce.number().int().min(1).max(120).default(12),
+  /** Must be the same major version as the server. */
+  PG_DUMP_PATH: z.string().default("pg_dump"),
+
   // === Donations ===
   // There is no payment gateway. A gift is paid off-portal against the UPI QR
   // the alumni office configures in the admin settings, then declared and

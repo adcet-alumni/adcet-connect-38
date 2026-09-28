@@ -21,6 +21,7 @@ import { runResumeCleanup } from "./jobs/resumeCleanup.js";
 import { runDonationPurge } from "./jobs/donationPurge.js";
 import { runContentRetention } from "./jobs/contentRetention.js";
 import { runPendingUploadCleanup } from "./jobs/pendingUploadCleanup.js";
+import { runDatabaseBackup } from "./jobs/databaseBackup.js";
 import { runTokenCleanup } from "./jobs/tokenCleanup.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -110,6 +111,24 @@ const JOBS: ScheduledJob[] = [
     leaseMs: 15 * 60_000,
     runAtStartup: true,
     run: () => runPendingUploadCleanup(),
+  },
+  {
+    /*
+     * The monthly database backup — scheduled daily on purpose. "Every 30 days"
+     * is not "every month": it drifts, and a restart resets the interval, so a
+     * monthly job built that way eventually skips a month unnoticed. This one
+     * asks the database whether the current `YYYY-MM` already has a row and
+     * usually does nothing, which also means a failed month retries tomorrow
+     * rather than in thirty days. Off unless `DB_BACKUP_ENABLED`.
+     *
+     * The lease is long because `pg_dump` plus an upload of the whole database
+     * is the slowest thing this process ever does.
+     */
+    name: JOB_LEASES.databaseBackup,
+    everyMs: DAY_MS,
+    leaseMs: 3 * 60 * 60_000,
+    runAtStartup: true,
+    run: () => runDatabaseBackup(),
   },
   {
     /*

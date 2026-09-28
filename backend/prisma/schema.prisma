@@ -1173,3 +1173,29 @@ model PendingIdentityDocument {
 
   @@index([claimedAt, createdAt])
 }
+
+/// A monthly database backup that was taken and stored.
+///
+/// The row is the *record*, not the backup: the dump itself is an object in
+/// storage, and this says which period it covers, where it went and how big it
+/// was. Two jobs are done by the unique `period`:
+///
+///  - it makes the sweep idempotent. `jobs/databaseBackup.ts` runs daily and
+///    does nothing when the current month already has a row, which is how a
+///    "monthly" job survives restarts and rolling deploys without drifting off
+///    the calendar the way a 30-day interval would; and
+///  - it makes retention answerable without a `list()` on the storage
+///    interface — the oldest rows name the objects to delete.
+///
+/// A failed backup writes no row, so the next day's tick simply tries again.
+model DatabaseBackup {
+  id String @id @default(uuid())
+  /// Calendar month, `YYYY-MM`. One backup per month, by construction.
+  period     String   @unique
+  objectKey  String
+  sizeBytes  Int
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+}

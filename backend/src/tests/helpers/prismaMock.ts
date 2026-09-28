@@ -71,6 +71,7 @@ const MODELS = [
   "collaborationRequest",
   "archivedContent",
   "pendingIdentityDocument",
+  "databaseBackup",
 ] as const;
 
 export type MockedPrisma = {

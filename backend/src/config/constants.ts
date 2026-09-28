@@ -54,9 +54,28 @@ export const UPLOAD_SCOPES = [
   "avatar", "banner", "event", "achievement", "receipt", "resume",
   "event-attachment", "job-attachment", "email-attachment", "post",
   "newsletter", "newsletter-cover", "gallery", "collaboration",
-  "donation-proof", "donation-qr", "identity",
+  "donation-proof", "donation-qr", "identity", "backup",
 ] as const;
 export type UploadScope = (typeof UPLOAD_SCOPES)[number];
+
+/**
+ * Scopes the `/uploads` API must never name, in either direction.
+ *
+ * `backup` holds `pg_dump` output — every password hash, email address and
+ * record on the platform in one object. Nothing in the portal reads or writes
+ * one: `jobs/databaseBackup.ts` puts it there and a restore is done from
+ * outside the application by whoever holds the bucket credentials. Excluding it
+ * from the request schema means no route can even ask, which is a stronger
+ * guarantee than an authorisation check that a future refactor could route
+ * around.
+ */
+export const UNREACHABLE_UPLOAD_SCOPES = ["backup"] as const;
+
+/** The scopes a client may name — everything the worker doesn't own privately. */
+export const REQUESTABLE_UPLOAD_SCOPES = UPLOAD_SCOPES.filter(
+  (s): s is Exclude<UploadScope, (typeof UNREACHABLE_UPLOAD_SCOPES)[number]> =>
+    !(UNREACHABLE_UPLOAD_SCOPES as readonly string[]).includes(s),
+);
 
 /** Feed post media limits. Mirrored by the composer UI in the frontend. */
 export const FEED_MEDIA = {
@@ -107,6 +126,14 @@ export const UPLOAD_MAX_BYTES: Record<UploadScope, number> = {
   "donation-qr": 5 * MB,
   // A photo of a marksheet or a scanned certificate, off a phone.
   identity: 10 * MB,
+  /*
+   * Database dumps. Not reachable through `/uploads` at all — see
+   * `UNREACHABLE_SCOPES` in `modules/uploads/uploads.service.ts` — so this
+   * ceiling is only a sanity bound on what `jobs/databaseBackup.ts` will store
+   * in one object. A dump larger than this is the signal to move to the
+   * provider's own snapshots rather than to raise the number.
+   */
+  backup: 2048 * MB,
 };
 
 /**
