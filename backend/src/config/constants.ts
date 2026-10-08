@@ -133,7 +133,10 @@ export const UPLOAD_MAX_BYTES: Record<UploadScope, number> = {
    * in one object. A dump larger than this is the signal to move to the
    * provider's own snapshots rather than to raise the number.
    */
-  backup: 2048 * MB,
+  // 2047 rather than 2048: `DatabaseBackup.sizeBytes` is a PostgreSQL INTEGER
+  // (max 2,147,483,647 = 2^31-1). 2048*MB = 2,147,483,648 = 2^31, which
+  // overflows the column on insert and orphans the already-uploaded dump.
+  backup: 2047 * MB,
 };
 
 /**

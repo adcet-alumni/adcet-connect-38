@@ -20,6 +20,16 @@ export const STORAGE_BASE = PUBLIC_BASE_URL ?? "http://localhost:9000/adcet-alum
 const CLOUDINARY_CLOUD_NAME = envVar("VITE_CLOUDINARY_CLOUD_NAME");
 const CLOUDINARY_FOLDER = (envVar("VITE_CLOUDINARY_FOLDER") ?? "").replace(/^\/+|\/+$/g, "");
 
+// Surface the most common production misconfiguration before every image on
+// the site silently 404s. A missing base URL means `storageUrl()` produces
+// `http://localhost:9000/…`, which returns nothing in any real deployment.
+if (!PUBLIC_BASE_URL && !CLOUDINARY_CLOUD_NAME && typeof window !== "undefined") {
+  console.warn(
+    "[storage] Neither VITE_STORAGE_PUBLIC_BASE_URL nor VITE_CLOUDINARY_CLOUD_NAME is set " +
+      "— uploaded images will not load. Set one of them in the build environment.",
+  );
+}
+
 /** Mirrors IMAGE_EXTS / VIDEO_EXTS in the backend Cloudinary adapter (audio rides on `video`). */
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "bmp", "ico", "tif", "tiff", "heic", "heif"]);
 const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "avi", "mkv", "m4v", "ogv", "3gp", "flv", "mp3", "wav", "aac", "m4a", "ogg", "flac"]);

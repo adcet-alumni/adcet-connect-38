@@ -7,6 +7,7 @@ import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
 import { sendEmail, sendBulkEmails } from "../../lib/mailer.js";
 import { logger } from "../../lib/logger.js";
+import { getStorage } from "../../storage/index.js";
 import {
   achievementApprovedEmail,
   achievementAnnouncementEmail,
@@ -208,7 +209,24 @@ export const update = async (caller: Caller, id: string, data: Prisma.Achievemen
     delete patch.achieverName;
     delete patch.achieverLinkedinUrl;
   }
-  return prisma.achievement.update({ where: { id }, data: patch });
+  const updated = await prisma.achievement.update({ where: { id }, data: patch });
+
+  // Best-effort cleanup of old storage objects when keys are replaced.
+  const keysToDelete: string[] = [];
+  if (typeof data.imageKey === "string" && existing.imageKey && existing.imageKey !== data.imageKey) {
+    keysToDelete.push(existing.imageKey);
+  }
+  if (typeof data.attachmentKey === "string" && existing.attachmentKey && existing.attachmentKey !== data.attachmentKey) {
+    keysToDelete.push(existing.attachmentKey);
+  }
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((key) => storage.delete(key))).catch((err) =>
+      logger.warn({ err, id, keys: keysToDelete }, "Failed to clean up old achievement media"),
+    );
+  }
+
+  return updated;
 };
 
 export const remove = async (caller: Caller, id: string) => {
@@ -216,6 +234,15 @@ export const remove = async (caller: Caller, id: string) => {
   if (!existing) throw NotFound();
   if (existing.userId !== caller.sub && !isAdmin(caller)) throw Forbidden();
   await prisma.achievement.delete({ where: { id } });
+
+  // Best-effort cleanup of storage objects.
+  const keysToDelete = [existing.imageKey, existing.attachmentKey].filter(Boolean) as string[];
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((key) => storage.delete(key))).catch((err) =>
+      logger.warn({ err, id, keys: keysToDelete }, "Failed to clean up deleted achievement media"),
+    );
+  }
 };
 
 export const moderate = async (

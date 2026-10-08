@@ -336,6 +336,7 @@ export const options = {
   },
   thresholds: {
     "http_req_duration{endpoint:directory}": ["p(95)<400"],
+    "http_req_failed{endpoint:directory}": ["rate<0.001"],
     http_req_failed: ["rate<0.01"],
   },
 };

@@ -195,7 +195,15 @@ export const runDatabaseBackup = async (now: Date = new Date()): Promise<BackupR
 
   const period = periodOf(now);
   const existing = await prisma.databaseBackup.findUnique({ where: { period } });
-  if (existing) return { skipped: "already-taken-this-month", period };
+  if (existing) {
+    // Still attempt to prune stale backups even when this month's is done,
+    // so a transient storage failure during the original run doesn't leave
+    // old dumps around until a new month begins.
+    await pruneOldBackups(env.DB_BACKUP_KEEP).catch((err) =>
+      logger.warn({ err }, "backup prune retry failed"),
+    );
+    return { skipped: "already-taken-this-month", period };
+  }
 
   const startedAt = Date.now();
   const dir = await mkdtemp(path.join(tmpdir(), "adcet-backup-"));
@@ -227,9 +235,25 @@ export const runDatabaseBackup = async (now: Date = new Date()): Promise<BackupR
 
     const durationMs = Date.now() - startedAt;
     // Written last: a row must always mean the object is really there.
-    await prisma.databaseBackup.create({
-      data: { period, objectKey: stored.key, sizeBytes: size, durationMs },
-    });
+    // If the insert fails (e.g. integer overflow on sizeBytes, connection
+    // error), delete the already-uploaded object so it does not become an
+    // orphan that no retention sweep can ever reach.
+    try {
+      await prisma.databaseBackup.create({
+        data: { period, objectKey: stored.key, sizeBytes: size, durationMs },
+      });
+    } catch (insertErr) {
+      logger.error(
+        { err: insertErr, objectKey: stored.key },
+        "backup row insert failed — removing orphaned dump from storage",
+      );
+      await getStorage()
+        .delete(stored.key)
+        .catch((delErr) =>
+          logger.error({ err: delErr, objectKey: stored.key }, "failed to clean up orphaned backup object"),
+        );
+      throw insertErr;
+    }
 
     const pruned = await pruneOldBackups(env.DB_BACKUP_KEEP);
     logger.info(

@@ -13,6 +13,7 @@
 import { z } from "zod";
 import { prisma } from "./prisma.js";
 import { logger } from "./logger.js";
+import { getStorage } from "../storage/index.js";
 
 export const SETTINGS = {
   /**
@@ -144,6 +145,19 @@ export const setSettings = async (
       value: SETTINGS[key as SettingKey].schema.parse(value),
     }));
 
+  // If the donation QR image is being replaced, capture the old key so we can
+  // clean up the orphaned object afterwards.
+  const qrEntry = parsed.find(({ key }) => key === "donationQrKey");
+  let oldQrKey: string | null = null;
+  if (qrEntry) {
+    const row = await prisma.appSetting.findUnique({ where: { key: "donationQrKey" } });
+    if (row) {
+      try {
+        oldQrKey = JSON.parse(row.value) as string;
+      } catch { /* malformed — nothing to clean up */ }
+    }
+  }
+
   await prisma.$transaction(
     parsed.map(({ key, value }) =>
       prisma.appSetting.upsert({
@@ -156,6 +170,14 @@ export const setSettings = async (
   // Before the read below, so the admin who just saved sees their own change
   // rather than the copy cached a moment earlier.
   invalidateSettings();
+
+  // Best-effort cleanup of the old QR image if it was replaced.
+  if (oldQrKey && qrEntry && oldQrKey !== String(qrEntry.value)) {
+    getStorage().delete(oldQrKey).catch((err) =>
+      logger.warn({ err, key: oldQrKey }, "Failed to clean up old donation QR image"),
+    );
+  }
+
   return getAllSettings();
 };
 

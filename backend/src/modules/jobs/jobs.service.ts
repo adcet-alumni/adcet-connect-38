@@ -104,14 +104,43 @@ export const update = async (caller: Caller, id: string, data: Prisma.JobUpdateI
   const existing = await prisma.job.findUnique({ where: { id } });
   if (!existing) throw NotFound();
   if (existing.createdById !== caller.sub && !isAdmin(caller)) throw Forbidden();
-  return prisma.job.update({ where: { id }, data });
+  const updated = await prisma.job.update({ where: { id }, data });
+
+  // Best-effort cleanup of old storage object when attachmentKey is replaced.
+  if (
+    typeof data.attachmentKey === "string" &&
+    existing.attachmentKey &&
+    existing.attachmentKey !== data.attachmentKey
+  ) {
+    getStorage().delete(existing.attachmentKey).catch((err) =>
+      logger.warn({ err, id, key: existing.attachmentKey }, "Failed to clean up old job attachment"),
+    );
+  }
+
+  return updated;
 };
 
 export const remove = async (caller: Caller, id: string) => {
-  const existing = await prisma.job.findUnique({ where: { id } });
+  const existing = await prisma.job.findUnique({
+    where: { id },
+    include: { applications: { select: { resumeKey: true } } },
+  });
   if (!existing) throw NotFound();
   if (existing.createdById !== caller.sub && !isAdmin(caller)) throw Forbidden();
   await prisma.job.delete({ where: { id } });
+
+  // Best-effort cleanup of storage objects (attachment and any applicant resumes).
+  const keysToDelete = [
+    existing.attachmentKey,
+    ...existing.applications.map((a) => a.resumeKey),
+  ].filter(Boolean) as string[];
+
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((key) => storage.delete(key))).catch((err) =>
+      logger.warn({ err, id, keys: keysToDelete }, "Failed to clean up deleted job storage objects"),
+    );
+  }
 };
 
 export const apply = async (
