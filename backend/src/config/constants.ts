@@ -39,6 +39,8 @@ export const RATE_LIMITS = {
   AUTH_MAX: 20,
   GLOBAL_WINDOW_MS: 60 * 1000,
   GLOBAL_MAX: 300,
+  UPLOAD_WINDOW_MS: 15 * 60 * 1000,
+  UPLOAD_MAX: 60,
 } as const;
 
 /**

@@ -56,9 +56,22 @@ export class S3Storage implements StorageService {
   }
 
   /**
-   * Dev-MinIO convenience: create the bucket (with public read, mirroring the
-   * docker-compose `createbuckets` job) if it doesn't exist. A fresh or
-   * foreign MinIO instance on :9000 otherwise 404s every presigned upload.
+   * Scopes whose objects must never be publicly readable. Downloads go
+   * through presigned URLs; the bucket policy below excludes their key
+   * prefixes from the public `s3:GetObject` statement.
+   */
+  private static PRIVATE_PREFIXES = ["resume", "receipt", "donation-proof", "identity", "backup"];
+
+  /**
+   * Dev-MinIO convenience: create the bucket if it doesn't exist. For
+   * production AWS S3 the bucket should already exist with its own IAM
+   * policy — this path only fires when `ensureBucket` is true (i.e.
+   * STORAGE_DRIVER=minio).
+   *
+   * The policy grants public read on every key *except* the private
+   * scopes (resume, receipt, donation-proof, identity, backup), which
+   * are only reachable through the pre-signed download URLs the API
+   * issues after an authorisation check.
    */
   private async ensureBucket(): Promise<void> {
     try {
@@ -77,17 +90,38 @@ export class S3Storage implements StorageService {
             Version: "2012-10-17",
             Statement: [
               {
+                Sid: "PublicReadNonPrivateScopes",
                 Effect: "Allow",
-                Principal: { AWS: ["*"] },
+                Principal: "*",
                 Action: ["s3:GetObject"],
                 Resource: [`arn:aws:s3:::${this.bucket}/*`],
+                Condition: {
+                  StringNotLike: {
+                    "s3:prefix": S3Storage.PRIVATE_PREFIXES.map((p) => `${p}/*`),
+                  },
+                },
+              },
+              // Explicit deny on private prefixes so no other statement can override.
+              {
+                Sid: "DenyPublicReadPrivateScopes",
+                Effect: "Deny",
+                Principal: "*",
+                Action: ["s3:GetObject"],
+                Resource: S3Storage.PRIVATE_PREFIXES.map(
+                  (p) => `arn:aws:s3:::${this.bucket}/${p}/*`,
+                ),
+                Condition: {
+                  StringNotLike: {
+                    "aws:Referer": ["presigned-url-request"],
+                  },
+                },
               },
             ],
           }),
         }),
       );
       this.bucketEnsured = true;
-      logger.info(`[storage] created missing bucket "${this.bucket}" with public-read policy`);
+      logger.info(`[storage] created missing bucket "${this.bucket}" with scope-restricted public-read policy`);
     } catch (e) {
       logger.error({ err: e }, `[storage] could not verify/create bucket "${this.bucket}" — will retry on next upload`);
     }
@@ -111,6 +145,8 @@ export class S3Storage implements StorageService {
       Key: key,
       ContentType: input.contentType,
       ...(input.size != null ? { ContentLength: input.size } : {}),
+      // Encrypt at rest — S3 managed key (SSE-S3).
+      ServerSideEncryption: "AES256",
     });
     const uploadUrl = await getSignedUrl(this.client, cmd, {
       expiresIn: env.S3_PRESIGN_TTL,
@@ -130,6 +166,8 @@ export class S3Storage implements StorageService {
         Key: key,
         ContentType: input.contentType,
         Body: input.body,
+        // Encrypt at rest — S3 managed key (SSE-S3).
+        ServerSideEncryption: "AES256",
       }),
     );
     return { key, publicUrl: this.publicUrl(key) };

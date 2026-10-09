@@ -95,6 +95,13 @@ const schema = z.object({
   CLOUDINARY_PRIVATE_SCOPES: z.string().default("resume,receipt"),
   CLOUDINARY_PRESIGN_TTL: z.coerce.number().default(900),
 
+  // === AWS SES (mailer.ts) ===
+  SES_REGION: z.string().optional(),
+  SES_ACCESS_KEY: z.string().optional(),
+  SES_SECRET_KEY: z.string().optional(),
+  SES_FROM: z.string().optional(),
+  SES_CONFIGURATION_SET: z.string().optional(),
+
   /**
    * How long an uploaded résumé is kept before the retention job deletes the
    * stored object and stamps `JobApplication.resumeDeletedAt`.

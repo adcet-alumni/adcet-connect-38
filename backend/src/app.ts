@@ -55,6 +55,16 @@ export const buildApp = () => {
       referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     }),
   );
+
+  // Permissions Policy: restrict browser features the portal does not use.
+  app.use((_req, res, next) => {
+    res.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+    );
+    next();
+  });
+
   app.use(cors({ origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(","), credentials: true }));
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
