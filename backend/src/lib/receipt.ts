@@ -12,10 +12,13 @@ export interface ReceiptData {
   donorEmail?: string | null;
   amount: number; // rupees
   currency: string;
-  paymentId?: string | null;
-  orderId?: string | null;
+  /** The donor's bank/UPI transaction reference, verified against the statement. */
+  reference?: string | null;
   method?: string | null;
+  /** When the donor paid. */
   paidAt: Date;
+  /** When an admin matched the payment to the bank record. */
+  verifiedAt?: Date | null;
   message?: string | null;
 }
 
@@ -71,10 +74,10 @@ export const generateReceiptPdf = (data: ReceiptData): Promise<Buffer> =>
 
     row("Received From", data.donorName || "Anonymous");
     if (data.donorEmail) row("Email", data.donorEmail);
-    row("Payment Method", (data.method || "online").toUpperCase());
-    if (data.paymentId) row("Payment ID", data.paymentId);
-    if (data.orderId) row("Order ID", data.orderId);
-    row("Status", "SUCCESSFUL");
+    row("Payment Method", (data.method || "UPI").toUpperCase());
+    if (data.reference) row("Transaction Ref.", data.reference);
+    if (data.verifiedAt) row("Verified On", data.verifiedAt.toLocaleString("en-IN"));
+    row("Status", "RECEIVED & VERIFIED");
     if (data.message) row("Message", data.message);
 
     y += 16;

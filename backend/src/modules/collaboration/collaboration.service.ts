@@ -14,6 +14,7 @@ import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
 import { sendEmail } from "../../lib/mailer.js";
 import { logger } from "../../lib/logger.js";
+import { getStorage } from "../../storage/index.js";
 import { formatDay } from "../../lib/dates.js";
 import {
   collaborationDecisionEmail,
@@ -112,6 +113,13 @@ export const remove = async (caller: Caller, id: string) => {
     }
   }
   await prisma.collaborationRequest.delete({ where: { id } });
+
+  // Best-effort cleanup of storage object.
+  if (existing.attachmentKey) {
+    getStorage().delete(existing.attachmentKey).catch((err) =>
+      logger.warn({ err, id, key: existing.attachmentKey }, "Failed to clean up deleted collaboration attachment"),
+    );
+  }
 };
 
 /** Counters for the admin sidebar badges, one per collaboration type. */

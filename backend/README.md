@@ -152,7 +152,7 @@ npm test -- -t "401 when the password is wrong"
 - **Forging auth tokens.** Integration tests use `makeToken({ sub, roles })` from
   `integrationApp.ts` to sign a real JWT with the test secret — exercising the
   actual `requireAuth` and `requireRoles` middleware end-to-end.
-- **External I/O** (mailer, storage adapters, third-party OAuth providers) is
+- **External I/O** (mailer, storage adapters) is
   mocked at the module boundary; no real network calls happen during `npm test`.
 - **Adding a new module.** Drop a `<module>.routes.test.ts` under
   `src/tests/integration/` modeled on `auth.routes.test.ts`, and a service unit

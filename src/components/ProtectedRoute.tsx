@@ -32,10 +32,10 @@ export const ProtectedRoute = ({ roles, redirectTo = "/" }: Props) => {
   if (!user) return <Navigate to={redirectTo} replace state={{ from: location.pathname }} />;
 
   /**
-   * Nobody uses the portal without the mandatory profile. This is what stops
-   * an SSO sign-in from walking straight in: Google/LinkedIn/GitHub give us a
-   * name and an email, so those accounts land here with `profileComplete`
-   * false and get routed to the onboarding form.
+   * Nobody uses the portal without the mandatory profile. Sign-up collects
+   * every required field, so this catches the accounts that predate that rule
+   * — and any the office imports — and routes them to the onboarding form
+   * rather than into a portal whose every screen is missing its data.
    *
    * Admins are exempt — locking the console behind an alumni-shaped form would
    * leave nobody able to approve anyone.

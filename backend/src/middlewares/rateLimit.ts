@@ -29,3 +29,12 @@ const createAuthLimiter = () => rateLimit({
 /** Login attempts get their own bucket so they cannot block registration or recovery. */
 export const loginLimiter = createAuthLimiter();
 export const authLimiter = createAuthLimiter();
+
+export const uploadLimiter = rateLimit({
+  windowMs: RATE_LIMITS.UPLOAD_WINDOW_MS,
+  max: RATE_LIMITS.UPLOAD_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { code: "TOO_MANY_REQUESTS", message: "Too many uploads, slow down." } },
+  skip: isTest,
+});

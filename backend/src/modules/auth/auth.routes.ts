@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, raw } from "express";
 import { asyncHandler } from "../../lib/asyncHandler.js";
 import { validate } from "../../middlewares/validate.js";
 import { requireAuth } from "../../middlewares/auth.js";
@@ -18,19 +18,30 @@ import {
 export const authRouter = Router();
 
 authRouter.post("/register/send-otp", authLimiter, validate(sendRegistrationOtpSchema), asyncHandler(ctrl.sendRegistrationOtp));
+/*
+ * Proof of study, uploaded before the email is verified — so anonymous, and
+ * therefore behind the same limiter as sign-up itself. `raw` because the body
+ * is the file: the type, the size and the emptiness of it are all checked
+ * against the received bytes in the service, and an upload no registration
+ * claims is swept by `jobs/pendingUploadCleanup.ts`.
+ */
+authRouter.post(
+  "/register/identity-document",
+  authLimiter,
+  raw({ type: "*/*", limit: "12mb" }),
+  asyncHandler(ctrl.uploadIdentityDocument),
+);
 authRouter.post("/register", authLimiter, validate(registerSchema), asyncHandler(ctrl.register));
 authRouter.post("/login", loginLimiter, validate(loginSchema), asyncHandler(ctrl.login));
 authRouter.post("/refresh", validate(refreshSchema), asyncHandler(ctrl.refresh));
 authRouter.post("/logout", validate(refreshSchema), asyncHandler(ctrl.logout));
 authRouter.get("/me", requireAuth, asyncHandler(ctrl.me));
-// Onboarding for SSO accounts: providers give us no academic or contact
-// detail, so those users land here before they can use the portal.
+// Onboarding safety net: registration collects every required field, so a
+// complete-profile round trip is normally never needed. It stays for accounts
+// created before that was true (and any imported by the office), which
+// `ProtectedRoute` still funnels here rather than into a half-empty portal.
 authRouter.post("/complete-profile", requireAuth, validate(completeProfileSchema), asyncHandler(ctrl.completeProfile));
 
 authRouter.post("/forgot-password", authLimiter, validate(forgotPasswordSchema), asyncHandler(ctrl.forgotPassword));
 authRouter.post("/reset-password", authLimiter, validate(resetPasswordSchema), asyncHandler(ctrl.resetPassword));
 authRouter.post("/change-password", requireAuth, validate(changePasswordSchema), asyncHandler(ctrl.changePassword));
-
-// OAuth (stubbed)
-authRouter.get("/oauth/:provider", asyncHandler(ctrl.oauthStart));
-authRouter.get("/oauth/:provider/callback", asyncHandler(ctrl.oauthCallback));

@@ -29,9 +29,10 @@ export interface AuthUser {
   roles: AppRole[];
   rejectionReason?: string | null;
   /**
-   * Whether the mandatory profile is filled in. SSO sign-ins start `false`
-   * because Google/LinkedIn/GitHub supply only a name and email — those users
-   * are routed to `/complete-profile` before they can use anything else.
+   * Whether the mandatory profile is filled in. Sign-up collects every
+   * required field, so this is `false` only for accounts that predate that
+   * rule (or were imported), which are routed to `/complete-profile` before
+   * they can use anything else.
    */
   profileComplete: boolean;
 }
@@ -246,12 +247,10 @@ export const api = {
 
 export const API_BASE_URL = BASE_URL;
 
-/** Build a full URL to a backend endpoint (used for OAuth redirects). */
-export const apiUrl = (path: string) => `${BASE_URL}${path}`;
-
 export async function uploadFile(
   file: File,
-  scope: "avatar" | "banner" | "event" | "achievement" | "receipt" | "resume" | "post",
+  scope: "avatar" | "banner" | "event" | "achievement" | "receipt" | "resume" | "post"
+    | "donation-proof" | "donation-qr",
 ): Promise<{ key: string; publicUrl: string }> {
   const tokens = tokenStore.get();
   const url = buildUrl("/uploads/direct", {

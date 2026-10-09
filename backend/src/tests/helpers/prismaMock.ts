@@ -40,7 +40,6 @@ const MODELS = [
   "refreshToken",
   "passwordResetToken",
   "emailVerificationOtp",
-  "oAuthAccount",
   "event",
   "eventRsvp",
   "job",
@@ -70,6 +69,9 @@ const MODELS = [
   "postQuotaUsage",
   "geoLocation",
   "collaborationRequest",
+  "archivedContent",
+  "pendingIdentityDocument",
+  "databaseBackup",
 ] as const;
 
 export type MockedPrisma = {

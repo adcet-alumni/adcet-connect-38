@@ -14,6 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { api, isNotFoundError, type AppRole, type ApprovalStatus } from "@/lib/api";
 import { EmptyState } from "@/components/EmptyState";
 import { safeExternalUrl } from "@/lib/urls";
+import IdentityDocumentPanel from "@/components/admin/IdentityDocumentPanel";
 
 interface AdminUserDetail {
   id: string;
@@ -38,6 +39,8 @@ interface AdminUserDetail {
     websiteUrl?: string | null;
     bio?: string | null;
     skills?: string[] | null;
+    /** Proof of study uploaded at sign-up; null on accounts that predate it. */
+    identityDocumentKey?: string | null;
   } | null;
 }
 
@@ -107,6 +110,10 @@ const AdminUserDetailPage = () => {
               <span className="text-foreground">{data.rejectionReason}</span>
             </div>
           )}
+
+          {/* First, because it is the only claim on this page the office can
+              actually verify — everything below it was typed by the applicant. */}
+          <IdentityDocumentPanel documentKey={data.profile?.identityDocumentKey} />
 
           {data.profile?.bio && (
             <div>

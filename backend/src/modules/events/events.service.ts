@@ -7,6 +7,7 @@ import type { AppRoleName } from "../../config/constants.js";
 import { sendBulkEmails } from "../../lib/mailer.js";
 import { eventNotificationEmail, rsvpConfirmationHtml } from "../../lib/email-templates.js";
 import { logger } from "../../lib/logger.js";
+import { getStorage } from "../../storage/index.js";
 import jwt from "jsonwebtoken";
 
 type Caller = { sub: string; roles: AppRoleName[] };
@@ -97,7 +98,24 @@ export const update = async (caller: Caller, id: string, data: Prisma.EventUpdat
   const existing = await prisma.event.findUnique({ where: { id } });
   if (!existing) throw NotFound();
   if (!isAdmin(caller)) throw Forbidden();
-  return prisma.event.update({ where: { id }, data });
+  const updated = await prisma.event.update({ where: { id }, data });
+
+  // Best-effort cleanup of old storage objects when keys are replaced.
+  const keysToDelete: string[] = [];
+  if (typeof data.coverKey === "string" && existing.coverKey && existing.coverKey !== data.coverKey) {
+    keysToDelete.push(existing.coverKey);
+  }
+  if (typeof data.attachmentKey === "string" && existing.attachmentKey && existing.attachmentKey !== data.attachmentKey) {
+    keysToDelete.push(existing.attachmentKey);
+  }
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((key) => storage.delete(key))).catch((err) =>
+      logger.warn({ err, id, keys: keysToDelete }, "Failed to clean up old event media"),
+    );
+  }
+
+  return updated;
 };
 
 export const remove = async (caller: Caller, id: string) => {
@@ -105,6 +123,15 @@ export const remove = async (caller: Caller, id: string) => {
   if (!existing) throw NotFound();
   if (!isAdmin(caller)) throw Forbidden();
   await prisma.event.delete({ where: { id } });
+
+  // Best-effort cleanup of storage objects.
+  const keysToDelete = [existing.coverKey, existing.attachmentKey].filter(Boolean) as string[];
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((key) => storage.delete(key))).catch((err) =>
+      logger.warn({ err, id, keys: keysToDelete }, "Failed to clean up deleted event media"),
+    );
+  }
 };
 
 export const rsvp = (eventId: string, userId: string, status: "GOING" | "INTERESTED" | "NOT_GOING") =>

@@ -95,6 +95,13 @@ const schema = z.object({
   CLOUDINARY_PRIVATE_SCOPES: z.string().default("resume,receipt"),
   CLOUDINARY_PRESIGN_TTL: z.coerce.number().default(900),
 
+  // === AWS SES (mailer.ts) ===
+  SES_REGION: z.string().optional(),
+  SES_ACCESS_KEY: z.string().optional(),
+  SES_SECRET_KEY: z.string().optional(),
+  SES_FROM: z.string().optional(),
+  SES_CONFIGURATION_SET: z.string().optional(),
+
   /**
    * How long an uploaded résumé is kept before the retention job deletes the
    * stored object and stamps `JobApplication.resumeDeletedAt`.
@@ -107,24 +114,33 @@ const schema = z.object({
 
   LOG_LEVEL: z.string().default("info"),
 
-  // === OAuth / SSO (optional — endpoints return 501 if a provider is unconfigured) ===
-  OAUTH_REDIRECT_BASE_URL: z.string().optional(), // e.g. http://localhost:4000/api/v1/auth/oauth
-  OAUTH_SUCCESS_REDIRECT: z.string().optional(),  // frontend URL to bounce to after success
+  // === Database backup (jobs/databaseBackup.ts) ===
+  /*
+   * Off unless asked for. A dump is the whole platform in one object — every
+   * password hash and email address — so it is never written anywhere by
+   * default, and DEPLOY.md is explicit that the destination bucket must be
+   * private with its own credentials.
+   */
+  /*
+   * Parsed explicitly, not with `z.coerce.boolean()` — that applies JS
+   * `Boolean()`, under which the string "false" is `true`. An env var that
+   * turns a feature on when you set it to "false" is the wrong way round for
+   * anything, and especially for this one.
+   */
+  DB_BACKUP_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** Monthly backups retained. 12 is a year; older ones are pruned. */
+  DB_BACKUP_KEEP: z.coerce.number().int().min(1).max(120).default(12),
+  /** Must be the same major version as the server. */
+  PG_DUMP_PATH: z.string().default("pg_dump"),
 
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-
-  LINKEDIN_CLIENT_ID: z.string().optional(),
-  LINKEDIN_CLIENT_SECRET: z.string().optional(),
-
-  GITHUB_CLIENT_ID: z.string().optional(),
-  GITHUB_CLIENT_SECRET: z.string().optional(),
-
-  // === Payments (Razorpay) — optional; donation endpoints return 501 if unset ===
-  RAZORPAY_KEY_ID: z.string().optional(),
-  RAZORPAY_KEY_SECRET: z.string().optional(),
-  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
-  // Public org details printed on receipts.
+  // === Donations ===
+  // There is no payment gateway. A gift is paid off-portal against the UPI QR
+  // the alumni office configures in the admin settings, then declared and
+  // verified in-portal — so nothing here is a secret, only what goes on a
+  // receipt. Public org details printed on receipts:
   ORG_NAME: z.string().default("Annasaheb Dange College of Engineering & Technology, Ashta"),
   ORG_ADDRESS: z.string().default("Ashta, Dist. Sangli, Maharashtra 416301"),
 

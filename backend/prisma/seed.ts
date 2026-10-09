@@ -616,29 +616,149 @@ async function main() {
     }),
   };
 
+  /*
+   * Where donations are actually paid. There is no gateway: the office puts a
+   * UPI QR on the donations page, the donor pays there and declares the
+   * transaction reference, and an admin matches it against the bank statement.
+   * Seeded so a dev clone has a working donations page out of the box — the QR
+   * image itself is left unset, which the page handles by showing the VPA.
+   */
+  const ensureSetting = async (key: string, value: string) => {
+    await prisma.appSetting.upsert({
+      where: { key },
+      update: {},
+      create: { key, value: JSON.stringify(value) },
+    });
+  };
+  await ensureSetting("donationUpiId", "adcetalumni@sbi");
+  await ensureSetting("donationPayeeName", "ADCET Alumni Association");
+  await ensureSetting(
+    "donationBankDetails",
+    "A/c name: ADCET Alumni Association\nA/c no: 3927 4410 5566\nIFSC: SBIN0012345\nBranch: Ashta, Dist. Sangli",
+  );
+  await ensureSetting(
+    "donationInstructions",
+    "Every gift is verified against the college's bank statement before a receipt is issued.",
+  );
+
   // Idempotent: only create if user has no donation in this campaign.
+  //
+  // Every field a donor declares is filled in, because that is what the admin
+  // ledger reads: an amount with no reference, method or date is a row nobody
+  // could verify. RECEIVED rows carry `verifiedAt` for the same reason.
   const ensureDonation = async (
     userId: string,
     amount: number,
-    status: "PLEDGED" | "RECEIVED",
+    status: "PLEDGED" | "RECEIVED" | "REJECTED",
     campaignId: string | null,
+    reference: string,
     message?: string,
   ) => {
     const existing = await prisma.donation.findFirst({ where: { userId, campaignId, amount } });
-    if (existing) return existing;
+    // Rows seeded before donations were declared-and-verified have no reference,
+    // method or payment date — which in the admin ledger reads as a submission
+    // that captured nothing. Backfill those rather than leaving the office a
+    // queue of pending gifts with nothing to verify.
+    if (existing) {
+      if (existing.reference) return existing;
+      return prisma.donation.update({
+        where: { id: existing.id },
+        data: {
+          reference,
+          paymentMethod: "UPI",
+          paidAt: existing.paidAt ?? inDays(-10),
+          ...(existing.status === "RECEIVED" && {
+            verifiedAt: existing.verifiedAt ?? inDays(-1),
+            receiptNo: existing.receiptNo ?? `ADCET/${now.getFullYear()}/${reference.slice(-8)}`,
+          }),
+        },
+      });
+    }
+    const paidAt = inDays(-Math.ceil(Math.random() * 40) - 2);
     return prisma.donation.create({
-      data: { userId, campaignId, amount, status, message },
+      data: {
+        userId,
+        campaignId,
+        amount,
+        status,
+        message,
+        reference,
+        paymentMethod: "UPI",
+        paidAt,
+        ...(status === "RECEIVED" && {
+          verifiedAt: inDays(-1),
+          receiptNo: `ADCET/${paidAt.getFullYear()}/${reference.slice(-8)}`,
+        }),
+        ...(status === "REJECTED" && {
+          rejectionReason: "No matching credit found in the bank statement for this reference.",
+          archivedAt: inDays(-3),
+        }),
+      },
     });
   };
 
-  await ensureDonation(rahul.id, 50000, "RECEIVED", campaigns.scholarship.id, "Happy to give back.");
-  await ensureDonation(alice.id, 10000, "RECEIVED", campaigns.labs.id);
-  await ensureDonation(priya.id, 7500, "RECEIVED", campaigns.scholarship.id, "For the next generation.");
-  await ensureDonation(bob.id, 5000, "PLEDGED", campaigns.library.id);
-  await ensureDonation(alice.id, 25000, "RECEIVED", campaigns.incubation.id, "Backing the founders.");
-  await ensureDonation(rahul.id, 15000, "RECEIVED", campaigns.sports.id);
+  await ensureDonation(rahul.id, 50000, "RECEIVED", campaigns.scholarship.id, "UTR902411765401", "Happy to give back.");
+  await ensureDonation(alice.id, 10000, "RECEIVED", campaigns.labs.id, "UTR902411765402");
+  await ensureDonation(priya.id, 7500, "RECEIVED", campaigns.scholarship.id, "UTR902411765403", "For the next generation.");
+  // Awaiting the office — this is what an admin opens the ledger to decide on.
+  await ensureDonation(bob.id, 5000, "PLEDGED", campaigns.library.id, "UTR902411765404");
+  await ensureDonation(alice.id, 25000, "RECEIVED", campaigns.incubation.id, "UTR902411765405", "Backing the founders.");
+  await ensureDonation(rahul.id, 15000, "RECEIVED", campaigns.sports.id, "UTR902411765406");
   // A general-fund gift — campaign is genuinely optional.
-  await ensureDonation(priya.id, 3000, "RECEIVED", null, "Wherever it's needed most.");
+  await ensureDonation(priya.id, 3000, "RECEIVED", null, "UTR902411765407", "Wherever it's needed most.");
+  // Rejected, and inside its 30-day archive window: `jobs/donationPurge.ts`
+  // removes it once `archivedAt` is older than that.
+  await ensureDonation(sneha.id, 2000, "REJECTED", campaigns.library.id, "UTR902411765408");
+
+  /*
+   * Two postings that retention has already been through.
+   *
+   * Seeded so a dev clone shows what the archive is *for*: a job is deleted 45
+   * days after it goes up and a past event six months after it runs, but the
+   * dashboard's monthly charts and the CSV exports still count them. Without a
+   * row here, that union is invisible until the worker has been running for a
+   * month and a half.
+   *
+   * Freshly seeded jobs and events are inside their windows, so the sweep
+   * leaves them alone — reseed if a long-idle database has aged them out.
+   */
+  console.log("🗄  Seeding archived (retention-purged) content…");
+  const ensureArchived = async (
+    kind: "JOB" | "EVENT",
+    sourceId: string,
+    data: Record<string, unknown>,
+  ) => {
+    await prisma.archivedContent.upsert({
+      where: { kind_sourceId: { kind, sourceId } },
+      update: {},
+      create: { kind, sourceId, ...data } as never,
+    });
+  };
+  await ensureArchived("JOB", "seed-archived-job-1", {
+    title: "Data Analyst (2025 intake)",
+    company: "TCS",
+    authorName: "Alice Patil",
+    status: "APPROVED",
+    departments: ["Computer Science and Engineering"],
+    location: "Mumbai",
+    employmentType: "FULL_TIME",
+    vacancies: 4,
+    isClosed: true,
+    applicationCount: 17,
+    createdAt: inDays(-210),
+  });
+  await ensureArchived("EVENT", "seed-archived-event-1", {
+    title: "Alumni Homecoming 2025",
+    authorName: "Admin User",
+    status: "APPROVED",
+    departments: [],
+    location: "ADCET Campus, Ashta",
+    isOnline: false,
+    startsAt: inDays(-260),
+    endsAt: inDays(-259),
+    rsvpCount: 143,
+    createdAt: inDays(-300),
+  });
 
   console.log("✅ Seeding RSVPs + Job applications…");
   const ensureRsvp = async (eventId: string, userId: string) => {

@@ -39,6 +39,8 @@ export const RATE_LIMITS = {
   AUTH_MAX: 20,
   GLOBAL_WINDOW_MS: 60 * 1000,
   GLOBAL_MAX: 300,
+  UPLOAD_WINDOW_MS: 15 * 60 * 1000,
+  UPLOAD_MAX: 60,
 } as const;
 
 /**
@@ -54,8 +56,28 @@ export const UPLOAD_SCOPES = [
   "avatar", "banner", "event", "achievement", "receipt", "resume",
   "event-attachment", "job-attachment", "email-attachment", "post",
   "newsletter", "newsletter-cover", "gallery", "collaboration",
+  "donation-proof", "donation-qr", "identity", "backup",
 ] as const;
 export type UploadScope = (typeof UPLOAD_SCOPES)[number];
+
+/**
+ * Scopes the `/uploads` API must never name, in either direction.
+ *
+ * `backup` holds `pg_dump` output — every password hash, email address and
+ * record on the platform in one object. Nothing in the portal reads or writes
+ * one: `jobs/databaseBackup.ts` puts it there and a restore is done from
+ * outside the application by whoever holds the bucket credentials. Excluding it
+ * from the request schema means no route can even ask, which is a stronger
+ * guarantee than an authorisation check that a future refactor could route
+ * around.
+ */
+export const UNREACHABLE_UPLOAD_SCOPES = ["backup"] as const;
+
+/** The scopes a client may name — everything the worker doesn't own privately. */
+export const REQUESTABLE_UPLOAD_SCOPES = UPLOAD_SCOPES.filter(
+  (s): s is Exclude<UploadScope, (typeof UNREACHABLE_UPLOAD_SCOPES)[number]> =>
+    !(UNREACHABLE_UPLOAD_SCOPES as readonly string[]).includes(s),
+);
 
 /** Feed post media limits. Mirrored by the composer UI in the frontend. */
 export const FEED_MEDIA = {
@@ -101,6 +123,22 @@ export const UPLOAD_MAX_BYTES: Record<UploadScope, number> = {
   "newsletter-cover": 10 * MB,
   gallery: 10 * MB,
   collaboration: 10 * MB,
+  // A screenshot off a UPI app, and the payee's QR image.
+  "donation-proof": 10 * MB,
+  "donation-qr": 5 * MB,
+  // A photo of a marksheet or a scanned certificate, off a phone.
+  identity: 10 * MB,
+  /*
+   * Database dumps. Not reachable through `/uploads` at all — see
+   * `UNREACHABLE_SCOPES` in `modules/uploads/uploads.service.ts` — so this
+   * ceiling is only a sanity bound on what `jobs/databaseBackup.ts` will store
+   * in one object. A dump larger than this is the signal to move to the
+   * provider's own snapshots rather than to raise the number.
+   */
+  // 2047 rather than 2048: `DatabaseBackup.sizeBytes` is a PostgreSQL INTEGER
+  // (max 2,147,483,647 = 2^31-1). 2048*MB = 2,147,483,648 = 2^31, which
+  // overflows the column on insert and orphans the already-uploaded dump.
+  backup: 2047 * MB,
 };
 
 /**
@@ -220,3 +258,101 @@ export const DEFAULT_CHAPTERS = [
 
 export const THEMES = ["default", "ocean", "sunset", "forest", "royal"] as const;
 export type ThemeName = (typeof THEMES)[number];
+/**
+ * How a donor says they moved the money — the two ways the alumni office
+ * publishes, and nothing else. The page offers a UPI QR and a bank account, so
+ * offering NEFT, IMPS, RTGS, cash and cheque as separate answers only asked the
+ * donor to classify a transfer the office reconciles the same way regardless.
+ *
+ * Not a gateway's method list: nothing here is observed, it is what the donor
+ * said, and an admin confirms it against the bank statement before the gift
+ * counts. `Donation.paymentMethod` is a plain string column, so rows written
+ * when the list was longer still read back correctly.
+ *
+ * Mirrored by `DONATION_PAYMENT_METHODS` in `src/lib/donations.ts`.
+ */
+export const DONATION_PAYMENT_METHODS = ["UPI", "BANK_TRANSFER"] as const;
+export type DonationPaymentMethod = (typeof DONATION_PAYMENT_METHODS)[number];
+
+/**
+ * How long a rejected donation stays readable before `jobs/donationPurge.ts`
+ * deletes it and its proof file.
+ *
+ * A rejection is not a correction: the donor is told why, and may need to come
+ * back with the right reference. The row is archived rather than removed so
+ * that conversation has something to point at — and removed on a clock so the
+ * ledger doesn't accumulate claims the office already dismissed.
+ */
+export const DONATION_ARCHIVE_RETENTION_DAYS = 30;
+
+/**
+ * How long a job posting lives.
+ *
+ * `VISIBLE_DAYS` is how long members see it in the listings; `RETENTION_DAYS`
+ * is when `jobs/contentRetention.ts` deletes it. The gap between the two is
+ * deliberate and not slack: an expired posting disappears from the board but
+ * the alumnus who posted it can still open it and read the applications for
+ * another fortnight, which is exactly when they are shortlisting.
+ *
+ * Both are measured from the posting's effective expiry — `Job.expiresAt` when
+ * an admin has set one, otherwise `createdAt + VISIBLE_DAYS`. That is what
+ * makes `expiresAt` an extension rather than a second, competing rule; see
+ * `lib/retention.ts`, which is the only place either number is applied.
+ */
+export const JOB_RETENTION = {
+  VISIBLE_DAYS: 30,
+  /** Days after posting, when nothing has extended it. */
+  RETENTION_DAYS: 45,
+} as const;
+
+/**
+ * How long a past event is kept: six months after it finished.
+ *
+ * Measured from `endsAt` when the event declared one, otherwise `startsAt` — a
+ * multi-day reunion is "past" when it ends, not when it opens. Upcoming events
+ * are never swept, however long ago they were created.
+ */
+export const EVENT_RETENTION_MONTHS = 6;
+
+/**
+ * The proof of study sign-up asks for.
+ *
+ * Nothing on an account previously said whether the applicant had actually
+ * been a student here — an admin approving one had a name, a batch and a
+ * department, every one of them typed by the applicant. One of these documents
+ * is now required, and shown to the admin reviewing the account.
+ *
+ * Mirrored by `IDENTITY_DOCUMENT_KINDS` in `src/lib/identity.ts`.
+ */
+export const IDENTITY_DOCUMENT_KINDS = [
+  "Library card",
+  "Marksheet",
+  "Leaving certificate",
+  "Degree certificate",
+] as const;
+
+/**
+ * What an identity document may be.
+ *
+ * Deliberately narrow, and enforced on the *server* against the bytes' declared
+ * type: this is the one upload endpoint with no session in front of it, so it
+ * is also the one place an open door would let someone park arbitrary files in
+ * the college's bucket.
+ */
+export const IDENTITY_DOCUMENT_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "application/pdf",
+] as const;
+
+/**
+ * How long an uploaded document waits for the sign-up that will claim it.
+ *
+ * An abandoned registration leaves the object behind, and an unauthenticated
+ * endpoint with no sweep behind it is a bucket anyone can fill. Generous enough
+ * that a slow sign-up — an OTP email that took a while, a form filled in over
+ * lunch — is never surprised by its own upload vanishing.
+ */
+export const PENDING_UPLOAD_RETENTION_HOURS = 24;

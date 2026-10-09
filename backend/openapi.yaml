@@ -105,22 +105,36 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
 
-  /auth/oauth/{provider}/start:
-    get:
+  /auth/register/identity-document:
+    post:
       tags: [Auth]
       security: []
+      summary: Upload proof of study, before the account exists
+      description: >
+        The only endpoint that accepts bytes anonymously — the document is
+        collected before the email is verified, so there is no session yet.
+        Rate limited; the MIME type and size are checked against the bytes
+        received; uploads no registration claims are swept after 24 hours.
+        Answers with an id, never the storage key.
       parameters:
-        - { in: path, name: provider, required: true, schema: { type: string, enum: [linkedin, github] } }
-      responses: { '302': { description: Redirect to provider } }
-
-  /auth/oauth/{provider}/callback:
-    get:
-      tags: [Auth]
-      security: []
-      parameters:
-        - { in: path, name: provider, required: true, schema: { type: string, enum: [linkedin, github] } }
-        - { in: query, name: code, schema: { type: string } }
-      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuthTokens' } } } } }
+        - { in: query, name: fileName, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+          application/pdf: { schema: { type: string, format: binary } }
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documentId: { type: string, format: uuid, description: "Pass to POST /auth/register as identityDocumentId" }
+        '400': { description: Wrong type, empty, or too large }
 
   # ---------- USERS / PROFILES ----------
   /users/me/preferences:
@@ -293,6 +307,48 @@ paths:
       tags: [Donations]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DonationCampaignInput' } } } }
       responses: { '201': { description: Created } }
+
+  /donations/payment-details:
+    get:
+      tags: [Donations]
+      summary: Where to pay — the UPI QR, VPA and bank account the office publishes
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DonationPaymentDetails' } } } } }
+
+  /donations/stats:
+    get:
+      tags: [Donations]
+      summary: Admin — the ledger's header totals, over the whole filtered set
+      description: >
+        Its own endpoint because the ledger is paginated: totalling the rows on
+        a page would report "received on page 3". Takes the ledger's filters but
+        no page.
+      parameters:
+        - { in: query, name: campaignId, schema: { type: string } }
+        - { in: query, name: status, schema: { $ref: '#/components/schemas/DonationStatus' } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DonationStats' } } } } }
+
+  /donations/{id}/approve:
+    post:
+      tags: [Donations]
+      summary: Admin — the payment was found in the bank statement. Mints the receipt and emails it.
+      parameters: [ { in: path, name: id, required: true, schema: { type: string } } ]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { note: { type: string } } } } } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Donation' } } } } }
+
+  /donations/{id}/reject:
+    post:
+      tags: [Donations]
+      summary: Admin — the payment could not be matched. Archives it and emails the donor the reason.
+      parameters: [ { in: path, name: id, required: true, schema: { type: string } } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 5 } } } } } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Donation' } } } } }
+
+  /donations/{id}/withdraw:
+    post:
+      tags: [Donations]
+      summary: Donor — withdraw an own submission, while it is still awaiting a decision
+      parameters: [ { in: path, name: id, required: true, schema: { type: string } } ]
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Donation' } } } } }
 
   /donations:
     get:
@@ -631,7 +687,7 @@ components:
     DegreeType: { type: string, enum: [BE, ME, PHD, DIPLOMA] }
     EmploymentType: { type: string, enum: [FULL_TIME, PART_TIME, INTERNSHIP, CONTRACT] }
     RsvpStatus: { type: string, enum: [GOING, INTERESTED, NOT_GOING] }
-    DonationStatus: { type: string, enum: [PLEDGED, RECEIVED, CANCELLED] }
+    DonationStatus: { type: string, enum: [PLEDGED, RECEIVED, REJECTED, CANCELLED] }
 
     Pagination:
       type: object
@@ -890,13 +946,18 @@ components:
             raisedAmount: { type: integer }
             donorCount: { type: integer }
 
+    # A donation is paid off-portal (UPI QR / bank transfer) and declared here.
+    # Nothing in this payload is verified until an admin approves it.
     DonationInput:
       type: object
-      required: [amount]
+      required: [amount, reference, paymentMethod, paidAt]
       properties:
-        campaignId: { type: string }
+        campaignId: { type: string, description: "Omit for a general-fund gift" }
         amount: { type: integer, minimum: 1 }
-        currency: { type: string }
+        reference: { type: string, description: "Bank/UPI transaction reference (UTR). Unique across all donations." }
+        paymentMethod: { type: string, enum: [UPI, NEFT, IMPS, RTGS, BANK_TRANSFER, CASH, CHEQUE] }
+        paidAt: { type: string, format: date-time }
+        proofKey: { type: string, description: "Object key of a screenshot uploaded under the donation-proof scope" }
         message: { type: string }
         isAnonymous: { type: boolean }
 
@@ -908,7 +969,38 @@ components:
             id: { type: string }
             userId: { type: string }
             status: { $ref: '#/components/schemas/DonationStatus' }
+            receiptNo: { type: string, nullable: true }
+            verifiedAt: { type: string, format: date-time, nullable: true }
+            rejectionReason: { type: string, nullable: true }
+            archivedAt: { type: string, format: date-time, nullable: true }
             createdAt: { type: string, format: date-time }
+
+    DonationStats:
+      type: object
+      properties:
+        totalReceived: { type: integer, description: "Rupees received within the filters, all time" }
+        thisMonthReceived: { type: integer }
+        donorCount: { type: integer, description: "Distinct donors in the filtered set" }
+        pendingCount: { type: integer, description: "Awaiting a decision; ignores the status filter" }
+        byCampaign:
+          type: array
+          items:
+            type: object
+            properties:
+              campaignId: { type: string, nullable: true, description: "null is the general fund" }
+              title: { type: string }
+              received: { type: integer }
+              count: { type: integer }
+
+    DonationPaymentDetails:
+      type: object
+      properties:
+        upiId: { type: string }
+        payeeName: { type: string }
+        qrKey: { type: string }
+        bankDetails: { type: string }
+        instructions: { type: string }
+        configured: { type: boolean, description: "False until the office publishes at least one way to pay" }
 
     PaginatedDonations:
       type: object

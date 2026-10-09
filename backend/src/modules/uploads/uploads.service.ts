@@ -12,15 +12,45 @@
 import { prisma } from "../../lib/prisma.js";
 import { BadRequest, Forbidden, NotFound } from "../../lib/errors.js";
 import { getStorage } from "../../storage/index.js";
-import { UPLOAD_SCOPES, UPLOAD_MAX_BYTES, type UploadScope } from "../../config/constants.js";
+import {
+  UNREACHABLE_UPLOAD_SCOPES,
+  UPLOAD_SCOPES,
+  UPLOAD_MAX_BYTES,
+  type UploadScope,
+} from "../../config/constants.js";
 
 /**
  * Scopes whose objects are *not* publicly delivered. Everything else is
  * fetched by anyone with the URL anyway (`storageUrl()` on the frontend builds
  * a plain public URL for it), so presigning one grants no access that a
- * visitor did not already have — but these two must be authorised.
+ * visitor did not already have — but these three must be authorised.
+ *
+ * `donation-proof` is a screenshot of somebody's bank or UPI app: their name,
+ * their balance in some apps, and the account they paid from. Only the donor
+ * and an admin verifying the gift ever need it. The payee's QR (`donation-qr`)
+ * is the opposite — it is printed on the donations page for everyone.
+ *
+ * `identity` is a marksheet or a certificate — a roll number, a date of birth,
+ * a photograph and a set of results. Only the alumnus it belongs to and an
+ * admin reviewing the account may ever fetch one, and because the key was built
+ * before the account existed its owner segment is an upload id rather than a
+ * user id: `authorizeRead` resolves the real owner through `Profile` instead.
  */
-const PRIVATE_SCOPES = new Set<UploadScope>(["resume", "receipt"]);
+const PRIVATE_SCOPES = new Set<UploadScope>(["resume", "receipt", "donation-proof", "identity"]);
+
+/**
+ * Scopes this module must never touch, for anybody, including an admin.
+ *
+ * `backup` holds `pg_dump` output — every password hash, every email address,
+ * every phone number and every record on the platform in one object. Nothing
+ * about the portal needs to read one: a restore is done by whoever holds the
+ * bucket credentials, from outside the application. Treating it as merely
+ * "private" would leave one compromised admin session between an attacker and
+ * the entire database, so it is refused before authorisation is even
+ * considered, and reported as `NotFound` rather than `Forbidden` — the API
+ * should not confirm that such an object exists.
+ */
+const UNREACHABLE_SCOPES = new Set<string>(UNREACHABLE_UPLOAD_SCOPES);
 
 const SCOPES = new Set<string>(UPLOAD_SCOPES);
 
@@ -58,6 +88,7 @@ export interface Caller {
 const authorizeRead = async (caller: Caller, key: string): Promise<void> => {
   const parts = parseObjectKey(key);
   if (!parts) throw NotFound("No such object");
+  if (UNREACHABLE_SCOPES.has(parts.scope)) throw NotFound("No such object");
   if (!PRIVATE_SCOPES.has(parts.scope)) return;
   if (caller.isAdmin || parts.ownerId === caller.id) return;
 
@@ -68,6 +99,20 @@ const authorizeRead = async (caller: Caller, key: string): Promise<void> => {
     });
     if (application) return;
   }
+
+  /*
+   * An identity document's key was minted before its owner had an account, so
+   * the `ownerId` segment is the upload's id and the check above cannot match.
+   * The profile carrying the key is the authority on whose document it is.
+   */
+  if (parts.scope === "identity") {
+    const profile = await prisma.profile.findFirst({
+      where: { identityDocumentKey: key, userId: caller.id },
+      select: { userId: true },
+    });
+    if (profile) return;
+  }
+
   throw Forbidden("You do not have access to this file");
 };
 
@@ -78,6 +123,7 @@ const authorizeRead = async (caller: Caller, key: string): Promise<void> => {
 const authorizeWrite = (caller: Caller, key: string): void => {
   const parts = parseObjectKey(key);
   if (!parts) throw NotFound("No such object");
+  if (UNREACHABLE_SCOPES.has(parts.scope)) throw NotFound("No such object");
   if (caller.isAdmin || parts.ownerId === caller.id) return;
   throw Forbidden("You do not have access to this file");
 };

@@ -76,9 +76,25 @@ enum PostReportStatus {
   DISMISSED
 }
 
+/// Lifecycle of a donation under the manual (QR / bank transfer) flow.
+///
+/// PLEDGED   the donor has paid off-portal and submitted the verification form;
+///           the alumni office has not yet matched it against a bank record.
+/// RECEIVED  an admin cross-verified it. The receipt is generated and emailed
+///           at this moment, and only these rows count as money.
+/// REJECTED  an admin could not match it. The row is archived (`archivedAt`)
+///           and purged by `jobs/donationPurge.ts` after
+///           `DONATION_ARCHIVE_RETENTION_DAYS`.
+/// CANCELLED withdrawn before a decision — kept indefinitely, unlike REJECTED.
+enum ArchivedContentKind {
+  JOB
+  EVENT
+}
+
 enum DonationStatus {
   PLEDGED
   RECEIVED
+  REJECTED
   CANCELLED
 }
 
@@ -89,7 +105,7 @@ enum DonationStatus {
 model User {
   id              String         @id @default(uuid())
   email           String         @unique
-  passwordHash    String? // null when only OAuth login
+  passwordHash    String? // null only for legacy accounts; login refuses them
   firstName       String
   lastName        String
   status          ApprovalStatus @default(PENDING)
@@ -104,13 +120,13 @@ model User {
   preferences         UserPreferences?
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
-  oauthAccounts       OAuthAccount[]
 
   // Authored content
   eventsCreated         Event[]               @relation("EventCreator")
   jobsCreated           Job[]                 @relation("JobCreator")
   achievements          Achievement[]
   donations             Donation[]
+  donationsVerified     Donation[]            @relation("DonationVerifier")
   donationLedgerEntries DonationLedgerEntry[]
   rsvps                 EventRsvp[]
   jobApplications       JobApplication[]
@@ -151,19 +167,6 @@ model UserRole {
   @@unique([userId, role])
 }
 
-model OAuthAccount {
-  id           String   @id @default(uuid())
-  userId       String
-  provider     String // "linkedin" | "github"
-  providerId   String
-  accessToken  String?
-  refreshToken String?
-  createdAt    DateTime @default(now())
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerId])
-}
-
 model RefreshToken {
   id        String    @id @default(uuid())
   userId    String
@@ -174,6 +177,9 @@ model RefreshToken {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  /// `jobs/tokenCleanup.ts` sweeps on age. Without this the nightly deleteMany
+  /// is a sequential scan of every token the platform has ever issued.
+  @@index([createdAt])
 }
 
 model PasswordResetToken {
@@ -186,6 +192,8 @@ model PasswordResetToken {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  /// Swept by age — see `RefreshToken`.
+  @@index([createdAt])
 }
 
 /// One-time codes emailed during sign-up to verify the address BEFORE the
@@ -200,6 +208,8 @@ model EmailVerificationOtp {
   createdAt  DateTime  @default(now())
 
   @@index([email])
+  /// Swept on expiry rather than age: a ten-minute code has no audit value.
+  @@index([expiresAt])
 }
 
 model Profile {
@@ -208,6 +218,12 @@ model Profile {
   bio         String?
   avatarKey   String? // storage object key
   bannerKey   String? // profile cover banner storage key
+  /// Proof that this person actually studied here — a library card, marksheet,
+  /// leaving certificate or degree certificate, uploaded during sign-up and
+  /// shown to the admin reviewing the account. The `identity` scope is private:
+  /// only the owner and an admin can ever fetch it. Nullable because accounts
+  /// created before sign-up asked for one still exist.
+  identityDocumentKey String?
   phone       String?
   city        String?
   country     String? @default("India")
@@ -669,6 +685,9 @@ model DonationCampaign {
   donations Donation[]
 }
 
+/// A gift, declared by the donor after paying off-portal (UPI QR or bank
+/// transfer) and confirmed by an admin against the bank statement. There is no
+/// payment gateway: nothing here is trusted until `verifiedAt` is stamped.
 model Donation {
   id          String         @id @default(uuid())
   campaignId  String?
@@ -677,6 +696,7 @@ model Donation {
   currency    String         @default("INR")
   message     String?
   status      DonationStatus @default(PLEDGED)
+  /// Screenshot / PDF of the payment the donor attached. Private scope.
   proofKey    String?
   receiptKey  String?
   isAnonymous Boolean        @default(false)
@@ -687,24 +707,34 @@ model Donation {
   donorName  String?
   donorEmail String?
 
-  // Razorpay payment tracking (backend-verified, independent of the frontend).
-  provider          String?   @default("razorpay")
-  razorpayOrderId   String?   @unique
-  razorpayPaymentId String?
-  razorpaySignature String?
-  paymentMethod     String? // upi | card | netbanking | wallet | ...
-  receiptNo         String?   @unique
-  paidAt            DateTime?
-  receiptSentAt     DateTime?
+  /// The bank/UPI transaction reference (UTR) the donor typed, and the one
+  /// thing the admin matches against the statement. Unique, so the same
+  /// transaction cannot be claimed twice.
+  reference     String?   @unique
+  /// UPI | BANK_TRANSFER. A plain string, not an enum: rows written when the
+  /// list was longer (NEFT, IMPS, CASH, ...) still have to read back.
+  paymentMethod String?
+  /// When the donor says the money left their account.
+  paidAt        DateTime?
+  receiptNo     String?   @unique
+  receiptSentAt DateTime?
+
+  // Admin decision.
+  verifiedAt      DateTime?
+  verifiedById    String?
+  rejectionReason String?
+  /// Stamped when an admin rejects. The purge job sweeps on this column.
+  archivedAt      DateTime?
 
   campaign      DonationCampaign?     @relation(fields: [campaignId], references: [id])
   user          User                  @relation(fields: [userId], references: [id])
+  verifiedBy    User?                 @relation("DonationVerifier", fields: [verifiedById], references: [id])
   ledgerEntries DonationLedgerEntry[]
 
   @@index([campaignId])
   @@index([userId])
   @@index([status, createdAt])
-  @@index([razorpayPaymentId])
+  @@index([status, archivedAt])
 }
 
 model DonationLedgerEntry {
@@ -1055,4 +1085,117 @@ model CollaborationRequest {
   @@index([type, status, createdAt])
   /// The alumnus's own "Actions" panel reads their own requests, newest first.
   @@index([userId, createdAt])
+}
+
+// =====================================================================
+// RETENTION ARCHIVE
+// =====================================================================
+
+/// A job or event that retention deleted, reduced to the numbers reporting
+/// needs.
+///
+/// Deleting a posting must not delete what was *counted* about it: the admin
+/// dashboard buckets jobs and events by month, status and department, and the
+/// CSV exports list what was posted. So `jobs/contentRetention.ts` writes one
+/// of these in the same transaction that removes the source row — the archive
+/// and the deletion succeed together or neither happens.
+///
+/// What is deliberately **not** here is the reason the row was purged:
+/// descriptions, requirements, attachments, applications, RSVPs, résumés,
+/// contact details, and any foreign key to the person who posted it. A name is
+/// kept because the reports already printed one; nothing that could reach the
+/// account is.
+model ArchivedContent {
+  id   String              @id @default(uuid())
+  kind ArchivedContentKind
+  /// The purged row's id. Unique per kind, so a sweep that half-failed and ran
+  /// again cannot count one posting into a month twice.
+  sourceId String
+
+  title       String
+  /// Denormalised at purge time — deliberately a string, not a relation.
+  authorName  String?
+  status      ApprovalStatus
+  /// Copied verbatim, so `<dept> = ANY(departments)` selects the same rows here
+  /// as it does on the live table.
+  departments String[]       @default([])
+  location    String?
+
+  // ── Jobs ──
+  company          String?
+  employmentType   EmploymentType?
+  vacancies        Int?
+  isClosed         Boolean?
+  closedAt         DateTime?
+  /// Frozen at purge time; the applications themselves are gone.
+  applicationCount Int             @default(0)
+
+  // ── Events ──
+  isOnline  Boolean?
+  chapterId String?
+  startsAt  DateTime?
+  endsAt    DateTime?
+  /// Frozen at purge time; the RSVPs themselves are gone.
+  rsvpCount Int       @default(0)
+
+  /// The **source row's** `createdAt`, not this row's. Every month bucket on
+  /// the dashboard reads it, so stamping it with the purge date would move
+  /// history forward.
+  createdAt  DateTime
+  archivedAt DateTime @default(now())
+
+  @@unique([kind, sourceId])
+  @@index([kind, createdAt])
+  @@index([kind, status])
+}
+
+/// A sign-up identity document, uploaded before the account exists.
+///
+/// The upload has to happen before the email is verified — that is the point at
+/// which the office is given something to check — so there is no user to own
+/// the object and no session to authorise it. This row is the bridge: the
+/// anonymous upload endpoint stores the file and returns this row's id, and
+/// `register()` exchanges that id for the key it writes onto the new profile.
+///
+/// `claimedAt` is what makes the exchange single-use: one uploaded document
+/// belongs to one account. Rows that are never claimed — an abandoned sign-up,
+/// or an upload nobody followed through on — are swept with their objects by
+/// `jobs/pendingUploadCleanup.ts`, which is what stops an unauthenticated
+/// endpoint filling the bucket.
+model PendingIdentityDocument {
+  id          String    @id @default(uuid())
+  objectKey   String    @unique
+  contentType String
+  sizeBytes   Int
+  fileName    String
+  createdAt   DateTime  @default(now())
+  claimedAt   DateTime?
+
+  @@index([claimedAt, createdAt])
+}
+
+/// A monthly database backup that was taken and stored.
+///
+/// The row is the *record*, not the backup: the dump itself is an object in
+/// storage, and this says which period it covers, where it went and how big it
+/// was. Two jobs are done by the unique `period`:
+///
+///  - it makes the sweep idempotent. `jobs/databaseBackup.ts` runs daily and
+///    does nothing when the current month already has a row, which is how a
+///    "monthly" job survives restarts and rolling deploys without drifting off
+///    the calendar the way a 30-day interval would; and
+///  - it makes retention answerable without a `list()` on the storage
+///    interface — the oldest rows name the objects to delete.
+///
+/// A failed backup writes no row, so the next day's tick simply tries again.
+model DatabaseBackup {
+  id String @id @default(uuid())
+  /// Calendar month, `YYYY-MM`. One backup per month, by construction.
+  period     String   @unique
+  objectKey  String
+  sizeBytes  Int
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
 }

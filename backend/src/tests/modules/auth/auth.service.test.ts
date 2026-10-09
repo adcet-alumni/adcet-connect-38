@@ -4,7 +4,7 @@ import { createPrismaMock } from "../../helpers/prismaMock.js";
 const prismaMock = createPrismaMock();
 jest.unstable_mockModule("../../../lib/prisma.js", () => ({ prisma: prismaMock }));
 
-const { register, login, refresh, logout, me, loginWithOAuth } = await import(
+const { register, login, refresh, logout, me } = await import(
   "../../../modules/auth/auth.service.js"
 );
 
@@ -25,6 +25,13 @@ beforeEach(() => {
     if (m && typeof m === "object") {
       Object.values(m).forEach((fn: any) => fn?.mockReset?.());
     }
+  });
+  // Every sign-up claims a proof-of-study document; `count: 1` is that claim
+  // winning. `auth.routes.test.ts` covers what happens when it loses.
+  prismaMock.pendingIdentityDocument.updateMany.mockResolvedValue({ count: 1 });
+  prismaMock.pendingIdentityDocument.findUnique.mockResolvedValue({
+    id: "doc-1",
+    objectKey: "identity/doc-1/marksheet.jpg",
   });
 });
 
@@ -98,7 +105,7 @@ describe("modules/auth/service — login", () => {
     await expect(login({ email: "x@y.z", password: "p" } as any)).rejects.toMatchObject({ status: 401 });
   });
 
-  it("rejects accounts with no passwordHash (OAuth-only) with 401", async () => {
+  it("rejects an account with no passwordHash with 401", async () => {
     prismaMock.user.findUnique.mockResolvedValueOnce(mkUser({ passwordHash: null }));
     await expect(login({ email: "alice@example.com", password: "x" } as any)).rejects.toMatchObject({
       status: 401,
@@ -183,7 +190,7 @@ describe("modules/auth/service — refresh / logout", () => {
   });
 });
 
-describe("modules/auth/service — me / OAuth", () => {
+describe("modules/auth/service — me", () => {
   it("me: 401 when user vanished", async () => {
     prismaMock.user.findUnique.mockResolvedValueOnce(null);
     await expect(me("u-1")).rejects.toMatchObject({ status: 401 });
@@ -194,107 +201,5 @@ describe("modules/auth/service — me / OAuth", () => {
     const out = await me("u-1");
     expect(out).toMatchObject({ id: "u-1", email: "alice@example.com", roles: ["ALUMNI"] });
     expect((out as any).passwordHash).toBeUndefined();
-  });
-
-  it("loginWithOAuth: existing link → re-issues tokens for that user", async () => {
-    prismaMock.oAuthAccount.findUnique.mockResolvedValueOnce({
-      user: mkUser(),
-    });
-    prismaMock.user.update.mockResolvedValueOnce({});
-    prismaMock.refreshToken.create.mockResolvedValueOnce({});
-    const out = await loginWithOAuth({
-      provider: "google",
-      providerId: "g-1",
-      email: "alice@example.com",
-      firstName: "A",
-      lastName: "B",
-      emailVerified: true,
-    } as any);
-    expect(out.accessToken).toBeTruthy();
-    expect(prismaMock.user.create).not.toHaveBeenCalled();
-  });
-
-  it("loginWithOAuth: links to existing-by-email user", async () => {
-    prismaMock.oAuthAccount.findUnique.mockResolvedValueOnce(null);
-    prismaMock.user.findUnique.mockResolvedValueOnce(mkUser());
-    prismaMock.oAuthAccount.create.mockResolvedValueOnce({});
-    prismaMock.user.update.mockResolvedValueOnce({});
-    prismaMock.refreshToken.create.mockResolvedValueOnce({});
-    await loginWithOAuth({
-      provider: "google",
-      providerId: "g-1",
-      email: "alice@example.com",
-      firstName: "A",
-      lastName: "B",
-      emailVerified: true,
-    } as any);
-    expect(prismaMock.oAuthAccount.create).toHaveBeenCalled();
-    expect(prismaMock.user.create).not.toHaveBeenCalled();
-  });
-
-  /**
-   * A provider-verified email proves someone owns the address; it says nothing
-   * about whether they are an ADCET alumnus. Auto-approving here used to let
-   * anyone with a Google account into the portal, skipping both admin review
-   * and the mandatory profile.
-   */
-  it("loginWithOAuth: creates a brand-new user as PENDING even when the provider verified the email", async () => {
-    prismaMock.oAuthAccount.findUnique.mockResolvedValueOnce(null);
-    prismaMock.user.findUnique.mockResolvedValueOnce(null);
-    prismaMock.user.create.mockResolvedValueOnce(mkUser({ status: "PENDING" }));
-    prismaMock.user.update.mockResolvedValueOnce({});
-    prismaMock.refreshToken.create.mockResolvedValueOnce({});
-    await loginWithOAuth({
-      provider: "google",
-      providerId: "g-1",
-      email: "new@x.com",
-      firstName: "N",
-      lastName: "U",
-      emailVerified: true,
-    } as any);
-    const createArg = prismaMock.user.create.mock.calls[0][0] as any;
-    expect(createArg.data.status).toBe("PENDING");
-    // The address is still recorded as verified — that part the provider does prove.
-    expect(createArg.data.emailVerifiedAt).toBeInstanceOf(Date);
-  });
-
-  it("loginWithOAuth: reports the new account's profile as incomplete", async () => {
-    prismaMock.oAuthAccount.findUnique.mockResolvedValueOnce(null);
-    prismaMock.user.findUnique.mockResolvedValueOnce(null);
-    prismaMock.user.create.mockResolvedValueOnce(mkUser({ status: "PENDING", profile: {} }));
-    prismaMock.user.update.mockResolvedValueOnce({});
-    prismaMock.refreshToken.create.mockResolvedValueOnce({});
-    const res = await loginWithOAuth({
-      provider: "google",
-      providerId: "g-1",
-      email: "new@x.com",
-      firstName: "N",
-      lastName: "U",
-      emailVerified: true,
-    } as any);
-    // This flag is what routes the user to /complete-profile on the frontend.
-    expect(res.user.profileComplete).toBe(false);
-  });
-
-  it("loginWithOAuth: lowercases the provider-supplied email", async () => {
-    prismaMock.oAuthAccount.findUnique.mockResolvedValueOnce(null);
-    prismaMock.user.findUnique.mockResolvedValueOnce(null);
-    prismaMock.user.create.mockResolvedValueOnce(mkUser());
-    prismaMock.user.update.mockResolvedValueOnce({});
-    prismaMock.refreshToken.create.mockResolvedValueOnce({});
-    await loginWithOAuth({
-      provider: "github",
-      providerId: "gh-1",
-      email: "  New.User@Example.COM ",
-      firstName: "N",
-      lastName: "U",
-      emailVerified: true,
-    } as any);
-    // Otherwise GitHub could mint a second account beside the form-registered one.
-    expect(prismaMock.user.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { email: "new.user@example.com" } }),
-    );
-    const createArg = prismaMock.user.create.mock.calls[0][0] as any;
-    expect(createArg.data.email).toBe("new.user@example.com");
   });
 });

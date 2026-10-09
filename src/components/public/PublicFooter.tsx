@@ -64,6 +64,11 @@ export default function PublicFooter() {
               </Link>
             </li>
             <li>
+              <Link to="/privacy" className="hover:text-foreground transition-colors">
+                Privacy Policy
+              </Link>
+            </li>
+            <li>
               <a href={CONTACT.website} target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
                 College Website ↗
               </a>
@@ -151,6 +156,10 @@ export default function PublicFooter() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
           <p className="text-center sm:text-left">
             © {new Date().getFullYear()} {CONTACT.institute}. All Rights Reserved.
+            {" · "}
+            <Link to="/privacy" className="hover:text-foreground transition-colors underline-offset-2 hover:underline">
+              Privacy Policy
+            </Link>
           </p>
           <SocialLinks className="scale-90" />
         </div>

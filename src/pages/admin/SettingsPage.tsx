@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { User, Bell, Moon, Shield, Mail, Edit, Loader2, Camera, X, Gauge } from "lucide-react";
+import { User, Bell, Moon, Shield, Mail, Edit, Loader2, Camera, X, Gauge, QrCode, Upload, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,12 +21,40 @@ import ChangePasswordCard from "@/components/ChangePasswordCard";
 
 /** Shape of `GET /admin/settings`. */
 interface AdminSettings {
-  settings: { feedPostsPerMonth: number };
-  meta: Record<
-    "feedPostsPerMonth",
-    { label: string; description: string; default: number }
-  >;
+  settings: {
+    feedPostsPerMonth: number;
+    donationUpiId: string;
+    donationPayeeName: string;
+    donationQrKey: string;
+    donationBankDetails: string;
+    donationInstructions: string;
+  };
+  meta: Record<string, { label: string; description: string; default: unknown }>;
 }
+
+/**
+ * The donation settings, and only those, as one form.
+ *
+ * These five values *are* the donations page: with no gateway, what an admin
+ * types here is what a donor pays against. They save together because that is
+ * how they are read — a QR without the UPI ID beside it, or an account number
+ * belonging to a different payee, is worse than neither.
+ */
+type PaymentForm = {
+  donationUpiId: string;
+  donationPayeeName: string;
+  donationQrKey: string;
+  donationBankDetails: string;
+  donationInstructions: string;
+};
+
+const EMPTY_PAYMENT: PaymentForm = {
+  donationUpiId: "",
+  donationPayeeName: "",
+  donationQrKey: "",
+  donationBankDetails: "",
+  donationInstructions: "",
+};
 
 interface AdminProfile {
   bio?: string | null;
@@ -98,6 +126,64 @@ const SettingsPage = () => {
   useEffect(() => {
     if (settings.data) setPostLimit(String(settings.data.settings.feedPostsPerMonth));
   }, [settings.data]);
+
+  /*
+   * Donation payment details. Kept in their own form state and their own
+   * mutation so saving the posting limit above cannot silently rewrite the
+   * bank account, and vice versa.
+   */
+  const [payment, setPayment] = useState<PaymentForm>(EMPTY_PAYMENT);
+  const [qrUploading, setQrUploading] = useState(false);
+  const qrRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!settings.data) return;
+    const s = settings.data.settings;
+    setPayment({
+      donationUpiId: s.donationUpiId ?? "",
+      donationPayeeName: s.donationPayeeName ?? "",
+      donationQrKey: s.donationQrKey ?? "",
+      donationBankDetails: s.donationBankDetails ?? "",
+      donationInstructions: s.donationInstructions ?? "",
+    });
+  }, [settings.data]);
+
+  const savePayment = useMutation({
+    mutationFn: (next: PaymentForm) => api.patch("/admin/settings", next),
+    onSuccess: () => {
+      toast({
+        title: "Payment details saved",
+        description: "Donors will see these on the donations page.",
+      });
+      qc.invalidateQueries({ queryKey: ["admin", "settings"] });
+      // The donor-facing page reads the same values.
+      qc.invalidateQueries({ queryKey: ["donations", "payment-details"] });
+    },
+    onError: (e: unknown) =>
+      toast({ title: "Save failed", description: errorMessage(e), variant: "destructive" }),
+  });
+
+  /**
+   * The QR is uploaded and saved in one step, rather than waiting for the Save
+   * button: a key that exists in storage but not in settings is an orphaned
+   * file, and an admin who uploads then navigates away would leave one behind.
+   */
+  const handleQrPick = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Please select an image of the QR", variant: "destructive" });
+      return;
+    }
+    setQrUploading(true);
+    try {
+      const key = await uploadFile(file, "donation-qr");
+      const next = { ...payment, donationQrKey: key };
+      setPayment(next);
+      await savePayment.mutateAsync(next);
+    } catch (e: unknown) {
+      toast({ title: "Upload failed", description: errorMessage(e), variant: "destructive" });
+    } finally {
+      setQrUploading(false);
+    }
+  };
 
   const saveSettings = useMutation({
     mutationFn: () => api.patch("/admin/settings", { feedPostsPerMonth: Number(postLimit) }),
@@ -413,6 +499,152 @@ const SettingsPage = () => {
             <span className="text-xs text-muted-foreground pb-2">
               Default {settings.data?.meta.feedPostsPerMonth.default ?? 10} · admins are not limited
             </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Where donations are paid ──────────────────────────────────── */}
+      <div className="card-elevated p-6 space-y-5">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <QrCode className="h-4 w-4" /> Donation Payment Details
+          </h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            There is no payment gateway. Donors pay against what you publish here, then submit the
+            transaction reference for you to verify against the bank statement.
+          </p>
+        </div>
+
+        {settings.isLoading ? (
+          <Skeleton className="h-56 w-full" />
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="donationUpiId">UPI ID</Label>
+                <Input
+                  id="donationUpiId"
+                  placeholder="adcetalumni@sbi"
+                  value={payment.donationUpiId}
+                  onChange={(e) => setPayment({ ...payment, donationUpiId: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="donationPayeeName">Payee name</Label>
+                <Input
+                  id="donationPayeeName"
+                  placeholder="ADCET Alumni Association"
+                  value={payment.donationPayeeName}
+                  onChange={(e) => setPayment({ ...payment, donationPayeeName: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Payment QR code</Label>
+              <div className="flex flex-wrap items-start gap-4">
+                {payment.donationQrKey ? (
+                  <img
+                    src={storageUrl(payment.donationQrKey)}
+                    alt="Donation QR code"
+                    className="w-32 h-32 rounded-lg border border-border bg-white object-contain p-1.5"
+                  />
+                ) : (
+                  <div className="w-32 h-32 rounded-lg border border-dashed border-border grid place-items-center">
+                    <QrCode className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={qrUploading}
+                      onClick={() => qrRef.current?.click()}
+                    >
+                      {qrUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                      {payment.donationQrKey ? "Replace QR" : "Upload QR"}
+                    </Button>
+                    {payment.donationQrKey && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1.5 text-muted-foreground"
+                        disabled={savePayment.isPending}
+                        onClick={() => {
+                          const next = { ...payment, donationQrKey: "" };
+                          setPayment(next);
+                          savePayment.mutate(next);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Remove
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground max-w-xs">
+                    A screenshot of the QR from your bank's app. Uploading saves it straight away.
+                  </p>
+                </div>
+                <input
+                  ref={qrRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleQrPick(f);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="donationBankDetails">Bank transfer details</Label>
+              <Textarea
+                id="donationBankDetails"
+                rows={4}
+                maxLength={2000}
+                placeholder={"A/c name: …\nA/c no: …\nIFSC: …\nBranch: …"}
+                value={payment.donationBankDetails}
+                onChange={(e) => setPayment({ ...payment, donationBankDetails: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                For donors who prefer NEFT/IMPS. Shown exactly as typed, one detail per line.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="donationInstructions">Payment instructions</Label>
+              <Textarea
+                id="donationInstructions"
+                rows={3}
+                maxLength={4000}
+                placeholder="Anything a donor should know before paying."
+                value={payment.donationInstructions}
+                onChange={(e) => setPayment({ ...payment, donationInstructions: e.target.value })}
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                className="gap-1.5"
+                disabled={savePayment.isPending}
+                onClick={() => savePayment.mutate(payment)}
+              >
+                {savePayment.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save payment details"}
+              </Button>
+              {!payment.donationUpiId && !payment.donationQrKey && !payment.donationBankDetails && (
+                <span className="text-xs text-amber-600">
+                  Until one of these is filled in, the donations page tells members payment details
+                  haven't been published yet.
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>

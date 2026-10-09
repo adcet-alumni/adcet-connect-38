@@ -62,10 +62,15 @@ export const requiredProfileFields = {
   city: requiredText(120, "City is required"),
   currentCompany: requiredText(160, "Current company is required"),
   currentRole: requiredText(160, "Current role is required"),
-  linkedinUrl: z.string().trim().min(1, "LinkedIn profile is required").max(500)
-    .refine((v) => /^https?:\/\//i.test(v), { message: "Must be a valid URL" }),
-
   // --- Optional extras ---
+  /*
+   * LinkedIn is no longer mandatory. It was collected as a proxy for "is this
+   * person really an alumnus", which sign-up now answers properly with an
+   * identity document — and requiring it turned away alumni who simply don't
+   * use LinkedIn. It is still the most useful link in the directory, which is
+   * why the form asks prominently for it.
+   */
+  linkedinUrl: optionalUrl,
   githubUrl: optionalUrl,
   twitterUrl: optionalUrl,
   websiteUrl: optionalUrl,
@@ -106,6 +111,15 @@ export const registerSchema = z.object({
   otp: z.string().regex(/^\d{6}$/, "Enter the 6-digit verification code"),
   firstName: requiredText(80, "First name is required"),
   lastName: requiredText(80, "Last name is required"),
+  /**
+   * The proof-of-study document, uploaded a step earlier through
+   * `POST /auth/register/identity-document`.
+   *
+   * Required, and required *here* rather than on the profile schema, because
+   * only sign-up collects it: `POST /auth/complete-profile` is the second door
+   * for accounts that predate this, and it has no upload of its own to demand.
+   */
+  identityDocumentId: z.string().uuid("Upload your proof of study to continue"),
   // There is deliberately no `role` field. Sign-up always produces an ALUMNI
   // account; a `role` that arrives in the body is an unknown key, and Zod's
   // default strip drops it before the service ever sees it. No request can

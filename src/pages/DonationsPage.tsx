@@ -1,89 +1,53 @@
-import { useState } from "react";
+/**
+ * Give to the college — pay, then declare.
+ *
+ * There is no payment gateway (the college would not carry the fee), so this
+ * page is two halves in a fixed order: **where to pay**, which is the QR and
+ * UPI ID the alumni office publishes, and **what you paid**, the form that
+ * files the transaction reference for an admin to match against the bank
+ * statement. The form cannot be submitted until the office has published
+ * somewhere to pay — a reference is unanswerable otherwise, and the server
+ * refuses the claim for the same reason.
+ *
+ * The page never says "thank you for your donation" on submit. Nothing here is
+ * a gift until the office has verified it, and telling a donor otherwise is
+ * exactly the misunderstanding the acknowledgement email exists to prevent.
+ */
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Heart, Loader2, ShieldCheck, Download, CheckCircle2 } from "lucide-react";
+import {
+  Heart, Loader2, Download, CheckCircle2, QrCode, Copy, Check, Clock, XCircle,
+  Upload, Smartphone, Info, Ban,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-
-/**
- * What Razorpay Checkout hands back on a successful payment. These three
- * fields are exactly what the backend re-computes the HMAC over, so this is
- * the contract that matters — not the rest of the widget's payload.
- */
-interface RazorpaySuccess {
-  razorpay_order_id: string;
-  razorpay_payment_id: string;
-  razorpay_signature: string;
-}
-
-/** The `payment.failed` event payload — a reason to show the donor, if any. */
-interface RazorpayFailure {
-  error?: { description?: string };
-}
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => {
-      open: () => void;
-      on: (event: "payment.failed", cb: (r: RazorpayFailure) => void) => void;
-    };
-  }
-}
-
-interface OrderResponse {
-  donationId: string;
-  orderId: string;
-  amount: number;
-  currency: string;
-  keyId: string;
-  donorName: string;
-  donorEmail: string;
-}
-
-/** A fundraising campaign a donor can earmark their gift for. */
-interface Campaign {
-  id: string;
-  title: string;
-  description: string;
-  goalAmount: number;
-  raisedAmount?: number;
-  startsAt: string;
-  endsAt?: string | null;
-  isActive: boolean;
-}
-
-interface MyDonation {
-  id: string;
-  amount: number;
-  status: "PLEDGED" | "RECEIVED" | "CANCELLED";
-  createdAt: string;
-  paidAt?: string | null;
-  paymentMethod?: string | null;
-  razorpayPaymentId?: string | null;
-  receiptNo?: string | null;
-  receiptKey?: string | null;
-  /** What the gift was earmarked for; null means the general fund. */
-  campaign?: { id: string; title: string } | null;
-}
+import { storageUrl } from "@/lib/storage";
+import { uploadFile, UPLOAD_MAX_BYTES } from "@/lib/upload";
+import {
+  DONATION_PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
+  STATUS_LABELS,
+  STATUS_TONE,
+  formatINR,
+  upiPayUrl,
+  type Campaign,
+  type DonationPaymentMethod,
+  type MyDonation,
+  type PaymentDetails,
+} from "@/lib/donations";
 
 const PRESETS = [1000, 5000, 10000, 50000];
-const RAZORPAY_SRC = "https://checkout.razorpay.com/v1/checkout.js";
 
-const loadRazorpay = (): Promise<boolean> =>
-  new Promise((resolve) => {
-    if (window.Razorpay) return resolve(true);
-    const s = document.createElement("script");
-    s.src = RAZORPAY_SRC;
-    s.onload = () => resolve(true);
-    s.onerror = () => resolve(false);
-    document.body.appendChild(s);
-  });
+/** Today, as the `type="date"` input wants it — and its own maximum. */
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const DonationsPage = () => {
   const qc = useQueryClient();
@@ -93,9 +57,20 @@ const DonationsPage = () => {
   const [custom, setCustom] = useState("");
   const [message, setMessage] = useState("");
   const [anonymous, setAnonymous] = useState(false);
-  const [processing, setProcessing] = useState(false);
+  const [reference, setReference] = useState("");
+  const [method, setMethod] = useState<DonationPaymentMethod>("UPI");
+  const [paidOn, setPaidOn] = useState(todayISO);
+  const [proofKey, setProofKey] = useState<string | null>(null);
+  const [proofName, setProofName] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const amount = preset === "other" ? Number(custom) || 0 : preset;
+
+  const payment = useQuery({
+    queryKey: ["donations", "payment-details"],
+    queryFn: () => api.get<PaymentDetails>("/donations/payment-details"),
+  });
 
   // Only campaigns currently open to donations are offered.
   const campaigns = useQuery({
@@ -120,85 +95,79 @@ const DonationsPage = () => {
     ? myDonations.data
     : myDonations.data?.items ?? [];
 
-  const verify = useMutation({
-    mutationFn: (payload: {
-      razorpay_order_id: string;
-      razorpay_payment_id: string;
-      razorpay_signature: string;
-    }) => api.post("/donations/verify", payload),
+  const qrUrl = storageUrl(payment.data?.qrKey || undefined);
+  const upiLink = useMemo(
+    () => (payment.data ? upiPayUrl(payment.data, amount) : null),
+    [payment.data, amount],
+  );
+
+  const submit = useMutation({
+    mutationFn: () =>
+      api.post<MyDonation>("/donations", {
+        amount,
+        campaignId: campaignId || undefined,
+        reference: reference.trim(),
+        paymentMethod: method,
+        paidAt: new Date(`${paidOn}T00:00:00`).toISOString(),
+        proofKey: proofKey ?? undefined,
+        message: message || undefined,
+        isAnonymous: anonymous,
+      }),
     onSuccess: () => {
       toast({
-        title: "Thank you for your donation! 🙏",
-        description: "Payment successful. A receipt has been emailed to you.",
+        title: "Submitted for verification",
+        description: "You'll get your receipt by email once the office confirms it.",
       });
       qc.invalidateQueries({ queryKey: ["donations"] });
       setMessage("");
+      setReference("");
+      setProofKey(null);
+      setProofName(null);
     },
     onError: (e: unknown) =>
-      toast({
-        title: "Could not confirm payment",
-        description: errorMessage(e, "If money was deducted, it will be reconciled automatically."),
-        variant: "destructive",
-      }),
+      toast({ title: "Could not submit", description: errorMessage(e), variant: "destructive" }),
   });
 
-  const donate = async () => {
-    if (!amount || amount < 1) {
-      toast({ title: "Enter a valid amount", variant: "destructive" });
+  const withdraw = useMutation({
+    mutationFn: (id: string) => api.post(`/donations/${id}/withdraw`),
+    onSuccess: () => {
+      toast({ title: "Submission withdrawn" });
+      qc.invalidateQueries({ queryKey: ["donations"] });
+    },
+    onError: (e: unknown) =>
+      toast({ title: "Could not withdraw", description: errorMessage(e), variant: "destructive" }),
+  });
+
+  const handleProofPick = async (file: File) => {
+    if (file.size > UPLOAD_MAX_BYTES["donation-proof"]) {
+      toast({
+        title: "That file is too large",
+        description: `Screenshots must be under ${UPLOAD_MAX_BYTES["donation-proof"] / (1024 * 1024)} MB.`,
+        variant: "destructive",
+      });
       return;
     }
-    setProcessing(true);
+    setUploading(true);
     try {
-      const ok = await loadRazorpay();
-      if (!ok) throw new Error("Could not load the payment gateway. Check your connection.");
-
-      const order = await api.post<OrderResponse>("/donations/order", {
-        amount,
-        message: message || undefined,
-        isAnonymous: anonymous,
-        campaignId: campaignId || undefined,
-      });
-
-      if (!window.Razorpay) throw new Error("Payment gateway unavailable.");
-
-      const rzp = new window.Razorpay({
-        key: order.keyId,
-        amount: order.amount * 100,
-        currency: order.currency,
-        name: "ADCET Alumni Portal",
-        description: selected ? selected.title : "Donation to the ADCET general fund",
-        image: "/logo.jpeg",
-        order_id: order.orderId,
-        prefill: { name: order.donorName, email: order.donorEmail },
-        notes: { donationId: order.donationId },
-        theme: { color: "#1e3a5f" },
-        handler: (resp: RazorpaySuccess) => {
-          verify.mutate({
-            razorpay_order_id: resp.razorpay_order_id,
-            razorpay_payment_id: resp.razorpay_payment_id,
-            razorpay_signature: resp.razorpay_signature,
-          });
-          setProcessing(false);
-        },
-        modal: {
-          ondismiss: () => {
-            setProcessing(false);
-            toast({ title: "Payment cancelled", description: "No amount was charged." });
-          },
-        },
-      });
-      rzp.on("payment.failed", (resp: RazorpayFailure) => {
-        setProcessing(false);
-        toast({
-          title: "Payment failed",
-          description: resp?.error?.description ?? "Please try again.",
-          variant: "destructive",
-        });
-      });
-      rzp.open();
+      const key = await uploadFile(file, "donation-proof");
+      setProofKey(key);
+      setProofName(file.name);
     } catch (e: unknown) {
-      setProcessing(false);
-      toast({ title: "Donation failed", description: errorMessage(e), variant: "destructive" });
+      toast({ title: "Upload failed", description: errorMessage(e), variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const copyUpi = async () => {
+    const upi = payment.data?.upiId;
+    if (!upi) return;
+    try {
+      await navigator.clipboard.writeText(upi);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({ title: "Could not copy", description: upi });
     }
   };
 
@@ -207,9 +176,12 @@ const DonationsPage = () => {
       const { url } = await api.post<{ url: string }>("/uploads/presign-download", { key });
       window.open(url, "_blank");
     } catch (e) {
-      toast({ title: "Download failed", description: (e as Error).message, variant: "destructive" });
+      toast({ title: "Download failed", description: errorMessage(e), variant: "destructive" });
     }
   };
+
+  const canSubmit =
+    !!payment.data?.configured && amount >= 1 && reference.trim().length >= 4 && !!paidOn;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -219,135 +191,297 @@ const DonationsPage = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 card-elevated p-6 space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Make a Donation</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Choose an amount and pay securely. Your receipt is generated automatically.
-            </p>
-          </div>
+        <div className="lg:col-span-2 space-y-6">
+          {/* ── Step 1: where to pay ─────────────────────────────────── */}
+          <div className="card-elevated p-6 space-y-5">
+            <div className="flex items-start gap-3">
+              <span className="w-7 h-7 rounded-full bg-accent/15 text-accent grid place-items-center text-sm font-bold shrink-0">
+                1
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Pay</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Scan the QR, or transfer to the account below.
+                </p>
+              </div>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="campaign">What would you like to support?</Label>
-            <Select value={campaignId || "general"} onValueChange={(v) => setCampaignId(v === "general" ? "" : v)}>
-              <SelectTrigger id="campaign">
-                <SelectValue placeholder="Choose a cause" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="general">Wherever it's needed most (general fund)</SelectItem>
-                {openCampaigns.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selected ? (
-              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
-                <p className="text-xs text-muted-foreground">{selected.description}</p>
-                <div className="space-y-1">
-                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-accent transition-all"
-                      style={{
-                        width: `${Math.min(100, Math.round(((selected.raisedAmount ?? 0) / selected.goalAmount) * 100))}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    ₹{(selected.raisedAmount ?? 0).toLocaleString("en-IN")} raised of
-                    {" "}₹{selected.goalAmount.toLocaleString("en-IN")} goal
-                  </p>
-                </div>
+            {payment.isLoading ? (
+              <Skeleton className="h-56 w-full" />
+            ) : !payment.data?.configured ? (
+              <div className="rounded-lg border border-dashed border-border p-6 text-center space-y-2">
+                <QrCode className="h-8 w-8 mx-auto text-muted-foreground" />
+                <p className="text-sm font-medium text-foreground">
+                  Payment details haven't been published yet
+                </p>
+                <p className="text-xs text-muted-foreground">Please check back shortly.</p>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                Your gift is recorded against the cause you pick, so the alumni office can report
-                back on how it was used.
-              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-[auto,1fr] gap-5 items-start">
+                {qrUrl ? (
+                  <img
+                    src={qrUrl}
+                    alt="UPI payment QR code"
+                    className="w-44 h-44 rounded-xl border border-border bg-white object-contain p-2"
+                  />
+                ) : (
+                  <div className="w-44 h-44 rounded-xl border border-dashed border-border grid place-items-center text-center p-3">
+                    <span className="text-xs text-muted-foreground">No QR — use the details alongside</span>
+                  </div>
+                )}
+
+                <div className="space-y-3 min-w-0">
+                  {payment.data.payeeName && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Paying to</p>
+                      <p className="text-sm font-semibold text-foreground">{payment.data.payeeName}</p>
+                    </div>
+                  )}
+                  {payment.data.upiId && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">UPI ID</p>
+                      <div className="flex items-center gap-2">
+                        <code className="text-sm font-mono text-foreground break-all">
+                          {payment.data.upiId}
+                        </code>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 shrink-0"
+                          title="Copy UPI ID"
+                          onClick={copyUpi}
+                        >
+                          {copied ? <Check className="h-3.5 w-3.5 text-accent" /> : <Copy className="h-3.5 w-3.5" />}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {payment.data.bankDetails && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Bank account</p>
+                      <p className="text-sm text-foreground whitespace-pre-line">
+                        {payment.data.bankDetails}
+                      </p>
+                    </div>
+                  )}
+                  {upiLink && (
+                    <Button asChild variant="outline" size="sm" className="gap-1.5 sm:hidden">
+                      {/* Phones only: on a desktop a upi:// link has nothing to open. */}
+                      <a href={upiLink}>
+                        <Smartphone className="h-3.5 w-3.5" /> Open in a UPI app
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {payment.data?.instructions && (
+              <div className="rounded-lg bg-muted/50 p-3 flex items-start gap-2 text-xs text-muted-foreground">
+                <Info className="h-4 w-4 mt-0.5 text-accent flex-shrink-0" />
+                <span className="whitespace-pre-line">{payment.data.instructions}</span>
+              </div>
             )}
           </div>
 
-          <div className="space-y-3">
-            <Label>Select an amount (₹)</Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {PRESETS.map((a) => (
+          {/* ── Step 2: tell us what you paid ────────────────────────── */}
+          <div className="card-elevated p-6 space-y-6">
+            <div className="flex items-start gap-3">
+              <span className="w-7 h-7 rounded-full bg-accent/15 text-accent grid place-items-center text-sm font-bold shrink-0">
+                2
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Tell us what you paid</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  The office verifies it against the bank record, then emails your receipt.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="campaign">Support</Label>
+              <Select value={campaignId || "general"} onValueChange={(v) => setCampaignId(v === "general" ? "" : v)}>
+                <SelectTrigger id="campaign">
+                  <SelectValue placeholder="Choose a cause" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="general">Wherever it's needed most (general fund)</SelectItem>
+                  {openCampaigns.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selected ? (
+                <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">{selected.description}</p>
+                  <div className="space-y-1">
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-accent transition-all"
+                        style={{
+                          width: `${Math.min(100, Math.round(((selected.raisedAmount ?? 0) / selected.goalAmount) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {formatINR(selected.raisedAmount ?? 0)} raised of{" "}
+                      {formatINR(selected.goalAmount)} goal
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-3">
+              <Label>Amount paid (₹)</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {PRESETS.map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => setPreset(a)}
+                    className={`px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
+                      preset === a
+                        ? "border-accent bg-accent/10 text-accent ring-1 ring-accent"
+                        : "border-border text-foreground hover:border-accent/50"
+                    }`}
+                  >
+                    {formatINR(a)}
+                  </button>
+                ))}
                 <button
-                  key={a}
                   type="button"
-                  onClick={() => setPreset(a)}
+                  onClick={() => setPreset("other")}
                   className={`px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
-                    preset === a
+                    preset === "other"
                       ? "border-accent bg-accent/10 text-accent ring-1 ring-accent"
                       : "border-border text-foreground hover:border-accent/50"
                   }`}
                 >
-                  ₹{a.toLocaleString("en-IN")}
+                  Other
                 </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setPreset("other")}
-                className={`px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
-                  preset === "other"
-                    ? "border-accent bg-accent/10 text-accent ring-1 ring-accent"
-                    : "border-border text-foreground hover:border-accent/50"
-                }`}
-              >
-                Other
-              </button>
+              </div>
+              {preset === "other" && (
+                <Input
+                  type="number"
+                  min={1}
+                  autoFocus
+                  placeholder="Amount"
+                  value={custom}
+                  onChange={(e) => setCustom(e.target.value)}
+                  className="max-w-xs"
+                />
+              )}
             </div>
-            {preset === "other" && (
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="method">How you paid</Label>
+                <Select value={method} onValueChange={(v) => setMethod(v as DonationPaymentMethod)}>
+                  <SelectTrigger id="method">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DONATION_PAYMENT_METHODS.map((m) => (
+                      <SelectItem key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="paidOn">Date paid</Label>
+                <Input
+                  id="paidOn"
+                  type="date"
+                  max={todayISO()}
+                  value={paidOn}
+                  onChange={(e) => setPaidOn(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="reference">Transaction reference / UTR *</Label>
               <Input
-                type="number"
-                min={1}
-                autoFocus
-                placeholder="Enter custom amount"
-                value={custom}
-                onChange={(e) => setCustom(e.target.value)}
-                className="max-w-xs"
+                id="reference"
+                value={reference}
+                maxLength={80}
+                placeholder="e.g. 402318795412"
+                onChange={(e) => setReference(e.target.value)}
+                className="font-mono"
               />
-            )}
+              <p className="text-xs text-muted-foreground">
+                The UTR / transaction ID from your payment app — copy it exactly.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Payment screenshot (optional)</Label>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={uploading}
+                  onClick={() => document.getElementById("proof-input")?.click()}
+                >
+                  {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  {proofKey ? "Replace file" : "Attach screenshot"}
+                </Button>
+                {proofName && <span className="text-xs text-muted-foreground truncate">{proofName}</span>}
+                <input
+                  id="proof-input"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleProofPick(f);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Speeds up verification. Only you and the office can see it.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="donation-message">Message (optional)</Label>
+              <Textarea
+                id="donation-message"
+                value={message}
+                maxLength={1000}
+                rows={2}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="A note with your gift"
+              />
+            </div>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
+              Show my donation as anonymous
+            </label>
+
+            <Button
+              onClick={() => submit.mutate()}
+              disabled={!canSubmit || submit.isPending || uploading}
+              className="w-full sm:w-auto px-8"
+            >
+              {submit.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Heart className="mr-2 h-4 w-4" /> Submit {formatINR(amount)}
+                </>
+              )}
+            </Button>
           </div>
-
-          <div className="space-y-1.5">
-            <Label>Message (optional)</Label>
-            <Input
-              value={message}
-              maxLength={1000}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Add a note with your donation"
-            />
-          </div>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
-            Show my donation as anonymous
-          </label>
-
-          <div className="rounded-lg bg-muted/50 p-3 flex items-start gap-2 text-xs text-muted-foreground">
-            <ShieldCheck className="h-4 w-4 mt-0.5 text-accent flex-shrink-0" />
-            <span>
-              Payments are processed securely via Razorpay. Pay using UPI (Google Pay, PhonePe, Paytm),
-              cards, net banking or wallets. Your donation is recorded and verified automatically — no forms to fill.
-            </span>
-          </div>
-
-          <Button
-            onClick={donate}
-            disabled={processing || verify.isPending || !amount}
-            className="w-full sm:w-auto px-8"
-          >
-            {processing || verify.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <Heart className="mr-2 h-4 w-4" /> Donate ₹{Number(amount || 0).toLocaleString("en-IN")}
-              </>
-            )}
-          </Button>
         </div>
 
-        <div className="card-elevated p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">My Recent Donations</h2>
+        <div className="card-elevated p-6 h-fit">
+          <h2 className="text-lg font-semibold text-foreground mb-4">My Donations</h2>
           <div className="space-y-3">
             {myDonations.isLoading &&
               Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
@@ -355,46 +489,56 @@ const DonationsPage = () => {
               <p className="text-sm text-muted-foreground">No donations yet.</p>
             )}
             {recent.slice(0, 6).map((d) => (
-              <div key={d.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                <div className="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
-                  {d.status === "RECEIVED" ? (
-                    <CheckCircle2 className="h-4 w-4 text-accent" />
-                  ) : (
-                    <Heart className="h-4 w-4 text-accent" />
+              <div key={d.id} className="p-3 rounded-lg bg-muted/50 space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
+                    {d.status === "RECEIVED" ? (
+                      <CheckCircle2 className="h-4 w-4 text-accent" />
+                    ) : d.status === "REJECTED" ? (
+                      <XCircle className="h-4 w-4 text-destructive" />
+                    ) : d.status === "CANCELLED" ? (
+                      <Ban className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Clock className="h-4 w-4 text-amber-600" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">{formatINR(d.amount)}</p>
+                    <p className="text-xs text-foreground/80 truncate">
+                      {d.campaign?.title ?? "General fund"}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {new Date(d.paidAt ?? d.createdAt).toLocaleDateString("en-IN")} ·{" "}
+                      <span className={STATUS_TONE[d.status]}>{STATUS_LABELS[d.status]}</span>
+                    </p>
+                  </div>
+                  {d.receiptKey && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 flex-shrink-0"
+                      title="Download receipt"
+                      onClick={() => downloadReceipt(d.receiptKey!)}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
                   )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    ₹{Number(d.amount).toLocaleString("en-IN")}
-                  </p>
-                  <p className="text-xs text-foreground/80 truncate">
-                    {d.campaign?.title ?? "General fund"}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {new Date(d.paidAt ?? d.createdAt).toLocaleDateString()} ·{" "}
-                    <span
-                      className={
-                        d.status === "RECEIVED"
-                          ? "text-accent"
-                          : d.status === "CANCELLED"
-                            ? "text-destructive"
-                            : "text-amber-600"
-                      }
+                {d.status === "REJECTED" && d.rejectionReason && (
+                  <p className="text-xs text-destructive/90 pl-12">{d.rejectionReason}</p>
+                )}
+                {d.status === "PLEDGED" && (
+                  <div className="pl-12">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      disabled={withdraw.isPending}
+                      onClick={() => withdraw.mutate(d.id)}
                     >
-                      {d.status === "RECEIVED" ? "Paid" : d.status === "PLEDGED" ? "Pending" : "Cancelled"}
-                    </span>
-                  </p>
-                </div>
-                {d.receiptKey && (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 flex-shrink-0"
-                    title="Download receipt"
-                    onClick={() => downloadReceipt(d.receiptKey!)}
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
+                      Withdraw
+                    </Button>
+                  </div>
                 )}
               </div>
             ))}

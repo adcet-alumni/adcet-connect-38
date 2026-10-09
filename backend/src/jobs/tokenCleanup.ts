@@ -11,10 +11,27 @@
  * token is already refused by `auth.service.ts`, and deleting it changes
  * nothing a user can observe.
  *
- * Revoked and used rows are kept for `AUDIT_WINDOW_DAYS` rather than deleted on
- * sight: "this refresh token was revoked at 04:12" is the trail you want after
- * a suspected account takeover, and it is worthless if the row vanished the
- * moment it was revoked.
+ * ## Two rules, and why they are shaped this way
+ *
+ * **A row must be both spent *and* old.** The obvious predicate — "delete
+ * anything expired" — silently defeats the audit window it sits beside: a
+ * refresh token lives `JWT_REFRESH_TTL` (7 days by default), so a row revoked
+ * during a takeover was expired, and therefore deleted, three weeks before the
+ * 30-day trail it was being kept for had run. "This refresh token was revoked
+ * at 04:12" is exactly what an incident review a fortnight later needs. So
+ * `createdAt` decides *when* a row may go and the spent-ness decides *whether*
+ * it may — a token still capable of authenticating is never touched, however
+ * old, which is what keeps a deployment with a long `JWT_REFRESH_TTL` from
+ * having its members quietly logged out by a cleanup job.
+ *
+ * **`createdAt` leads the predicate because it is the indexed one.** Each of
+ * the three tables carries `@@index([createdAt])` for this sweep; without it a
+ * nightly `deleteMany` on `expiresAt` is a sequential scan of every token the
+ * platform has ever issued.
+ *
+ * Email OTPs are the exception to both: they live ten minutes, `register()`
+ * already clears an address's codes when one is redeemed, and a spent 6-digit
+ * code is worth nothing to an investigation. They go as soon as they expire.
  */
 import { prisma } from "../lib/prisma.js";
 import { logger } from "../lib/logger.js";
@@ -30,33 +47,28 @@ export interface TokenCleanupResult {
 
 export const runTokenCleanup = async (
   auditWindowDays = AUDIT_WINDOW_DAYS,
+  now: Date = new Date(),
 ): Promise<TokenCleanupResult> => {
-  const now = new Date();
   const auditCutoff = new Date(now.getTime() - auditWindowDays * 24 * 60 * 60 * 1000);
 
   const [refreshTokens, passwordResetTokens, emailOtps] = await Promise.all([
     prisma.refreshToken.deleteMany({
       where: {
-        OR: [
-          // Expired: cannot be exchanged, whatever its revocation state.
-          { expiresAt: { lt: now } },
-          // Revoked, and old enough that the trail has served its purpose.
-          { revokedAt: { lt: auditCutoff } },
-        ],
+        // Old enough that the trail has served its purpose...
+        createdAt: { lt: auditCutoff },
+        // ...and unable to authenticate anything regardless.
+        OR: [{ expiresAt: { lt: now } }, { revokedAt: { not: null } }],
       },
     }),
     prisma.passwordResetToken.deleteMany({
       where: {
-        OR: [{ expiresAt: { lt: now } }, { usedAt: { lt: auditCutoff } }],
+        createdAt: { lt: auditCutoff },
+        OR: [{ expiresAt: { lt: now } }, { usedAt: { not: null } }],
       },
     }),
-    // These are short-lived by design and carry no audit value once consumed —
-    // `auth.service.ts` already clears a user's codes when one is redeemed.
-    prisma.emailVerificationOtp.deleteMany({
-      where: {
-        OR: [{ expiresAt: { lt: now } }, { consumedAt: { lt: auditCutoff } }],
-      },
-    }),
+    // Ten-minute lifetime, no audit value once spent — and `sendRegistrationOtp`
+    // already drops an address's older codes. Expiry alone is the whole rule.
+    prisma.emailVerificationOtp.deleteMany({ where: { expiresAt: { lt: now } } }),
   ]);
 
   const result = {

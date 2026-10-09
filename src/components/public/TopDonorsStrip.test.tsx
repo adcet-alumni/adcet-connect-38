@@ -21,7 +21,6 @@ const DONORS = [
 const apiGet = vi.fn();
 vi.mock("@/lib/api", () => ({
   api: { get: (...a: unknown[]) => apiGet(...a), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
-  apiUrl: (p: string) => p,
   tokenStore: { get: () => null, set: vi.fn(), clear: vi.fn() },
 }));
 

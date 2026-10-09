@@ -1,15 +1,33 @@
+/**
+ * Donations, paid off-portal and verified by hand.
+ *
+ * There is no payment gateway — the college would not carry the fee — so the
+ * shape of this module follows from one fact: **nothing a donor tells us about
+ * a payment is evidence.** A submission is a claim. It lands `PLEDGED`, it is
+ * worth nothing until an admin has matched its `reference` against the
+ * college's bank statement, and only `approve()` turns it into money: that is
+ * the single place a receipt number is minted, a PDF generated and an email
+ * sent. `reject()` archives the claim with a reason the donor is told, and
+ * `jobs/donationPurge.ts` deletes it (and its proof screenshot) after
+ * `DONATION_ARCHIVE_RETENTION_DAYS`.
+ */
 import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
-import { BadRequest, Forbidden, NotFound } from "../../lib/errors.js";
+import { BadRequest, Conflict, Forbidden, NotFound } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
 import { logger } from "../../lib/logger.js";
 import { sendEmail } from "../../lib/mailer.js";
-import { donationReceiptEmail } from "../../lib/email-templates.js";
+import {
+  donationReceiptEmail,
+  donationRejectedEmail,
+  donationSubmittedEmail,
+} from "../../lib/email-templates.js";
 import { generateReceiptPdf } from "../../lib/receipt.js";
 import { getStorage } from "../../storage/index.js";
-import * as razorpay from "../../lib/razorpay.js";
+import { getAllSettings } from "../../lib/settings.js";
+import type { DonationPaymentMethod } from "../../config/constants.js";
 
-type DonationStatus = "PLEDGED" | "RECEIVED" | "CANCELLED";
+type DonationStatus = "PLEDGED" | "RECEIVED" | "REJECTED" | "CANCELLED";
 
 const makeReceiptNo = (donation: { id: string; createdAt?: Date }): string => {
   const year = (donation.createdAt ?? new Date()).getFullYear();
@@ -87,31 +105,92 @@ const resolveCampaign = async (campaignId: string | undefined) => {
   return campaign;
 };
 
+/* -------------------------------------------------------------------------- */
+/*  Where the money is actually paid                                          */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Step 1 of the payment flow: create a Razorpay order and a matching PLEDGED
- * donation row. Returns the data the browser needs to open Razorpay Checkout.
- * The donor's name/email are snapshotted so records/receipts stay correct, and
- * the chosen campaign is recorded on the donation so the alumni office can see
- * what each contribution was given for.
+ * The payee details the donations page prints: the QR, the UPI ID beside it,
+ * and the bank account for anyone who would rather do a transfer.
+ *
+ * They live in `lib/settings.ts` rather than env because the alumni office
+ * changes the account without a deploy. `configured` is false until at least
+ * one way to pay is filled in, which is what stops the page rendering an empty
+ * QR frame and a form asking donors to reference a payment they cannot make.
  */
-export const createOrder = async (
-  userId: string,
-  data: { amount: number; message?: string; isAnonymous?: boolean; campaignId?: string },
-) => {
+export const paymentDetails = async () => {
+  const s = await getAllSettings();
+  const upiId = String(s.donationUpiId ?? "");
+  const qrKey = String(s.donationQrKey ?? "");
+  const bankDetails = String(s.donationBankDetails ?? "");
+  return {
+    upiId,
+    payeeName: String(s.donationPayeeName ?? ""),
+    qrKey,
+    bankDetails,
+    instructions: String(s.donationInstructions ?? ""),
+    configured: Boolean(upiId || qrKey || bankDetails),
+  };
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Submit -> verify -> receipt                                               */
+/* -------------------------------------------------------------------------- */
+
+export interface SubmitDonationInput {
+  amount: number;
+  reference: string;
+  paymentMethod: DonationPaymentMethod;
+  paidAt: Date;
+  proofKey?: string;
+  message?: string;
+  isAnonymous?: boolean;
+  campaignId?: string;
+}
+
+/**
+ * File a donor's declaration that they have paid.
+ *
+ * The row lands `PLEDGED` — a claim awaiting the office, not a gift — and the
+ * donor is emailed an acknowledgement that says so in as many words, because
+ * the one thing that would go wrong here is a donor believing the portal has
+ * their money. The donor's name and email are snapshotted so the eventual
+ * receipt stays correct if they later edit their profile.
+ *
+ * `reference` is unique in the database. The lookup below is for the message,
+ * not the guarantee: two concurrent submissions of one UTR both pass it, and
+ * the constraint is what actually stops the second (P2002 -> 409).
+ */
+export const submit = async (userId: string, data: SubmitDonationInput) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw NotFound("User not found");
+
+  const details = await paymentDetails();
+  if (!details.configured) {
+    throw BadRequest("The alumni office has not published payment details yet. Please try again later.");
+  }
 
   const campaign = await resolveCampaign(data.campaignId);
   const amount = Math.round(data.amount);
   const donorName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
 
-  const order = await razorpay.createOrder({
-    amountPaise: amount * 100,
-    receipt: `don_${Date.now()}`,
-    // Echoed back on the webhook — handy when reconciling in the Razorpay
-    // dashboard, where our own campaign ids aren't otherwise visible.
-    notes: { userId, ...(campaign && { campaignId: campaign.id, campaign: campaign.title }) },
+  const clash = await prisma.donation.findUnique({
+    where: { reference: data.reference },
+    select: { id: true },
   });
+  if (clash) {
+    throw Conflict(
+      "That transaction reference has already been submitted. If this is a second gift, use the reference of that payment.",
+    );
+  }
+
+  // The proof screenshot must be the donor's own upload, not a key they typed:
+  // `donation-proof/<ownerId>/...` is what `parseObjectKey` builds, and reading
+  // one back is owner-or-admin only. Accepting somebody else's key here would
+  // attach their screenshot to this donation and hand it to the admin.
+  if (data.proofKey && !data.proofKey.startsWith(`donation-proof/${userId}/`)) {
+    throw BadRequest("That proof file does not belong to this account.");
+  }
 
   const donation = await prisma.$transaction(async (tx) => {
     const d = await tx.donation.create({
@@ -125,86 +204,51 @@ export const createOrder = async (
         status: "PLEDGED",
         donorName,
         donorEmail: user.email,
-        provider: "razorpay",
-        razorpayOrderId: order.id,
+        reference: data.reference,
+        paymentMethod: data.paymentMethod,
+        paidAt: data.paidAt,
+        proofKey: data.proofKey ?? null,
       },
     });
     await tx.donationLedgerEntry.create({
       data: {
         donationId: d.id,
         actorId: userId,
-        entryType: "ORDER_CREATED",
+        entryType: "SUBMITTED",
         status: "PLEDGED",
         amount,
+        proofKey: d.proofKey,
         note: campaign
-          ? `Razorpay order ${order.id} — ${campaign.title}`
-          : `Razorpay order ${order.id} — general fund`,
+          ? `${data.paymentMethod} ${data.reference} — ${campaign.title}`
+          : `${data.paymentMethod} ${data.reference} — general fund`,
       },
     });
     return d;
   });
 
-  return {
-    donationId: donation.id,
-    orderId: order.id,
-    amount,
-    currency: "INR",
-    keyId: razorpay.getPublicKeyId(),
-    donorName,
-    donorEmail: user.email,
-  };
-};
-
-/**
- * Idempotently transition a donation to RECEIVED. Safe to call from both the
- * frontend verify-callback and the Razorpay webhook — the first one wins.
- */
-const markReceived = async (
-  id: string,
-  paymentId: string,
-  signature: string | null,
-  method: string | null,
-) => {
-  const updated = await prisma.$transaction(async (tx) => {
-    const d = await tx.donation.findUnique({ where: { id } });
-    if (!d) return null;
-    if (d.status === "RECEIVED") return d;
-    const updated = await tx.donation.update({
-      where: { id },
-      data: {
-        status: "RECEIVED",
-        razorpayPaymentId: paymentId,
-        ...(signature ? { razorpaySignature: signature } : {}),
-        ...(method ? { paymentMethod: method } : {}),
-        paidAt: new Date(),
-        receiptNo: d.receiptNo ?? makeReceiptNo(d),
-      },
+  // Best-effort: a mail outage must not lose a filed donation.
+  try {
+    const mail = donationSubmittedEmail({
+      donorName,
+      amount,
+      reference: data.reference,
+      method: data.paymentMethod,
+      paidAt: data.paidAt,
+      campaignTitle: campaign?.title ?? null,
     });
-    await tx.donationLedgerEntry.create({
-      data: {
-        donationId: id,
-        entryType: "PAYMENT_CAPTURED",
-        status: "RECEIVED",
-        amount: updated.amount,
-        note: paymentId ? `Payment ${paymentId}` : null,
-      },
-    });
-    return updated;
-  });
+    await sendEmail({ to: user.email, subject: mail.subject, text: mail.text, html: mail.html });
+  } catch (e) {
+    logger.error({ err: e, donationId: donation.id }, "failed to send donation acknowledgement");
+  }
 
-  // Money just landed: the public honour roll may have a new leader. Dropped
-  // *after* the commit — clearing inside the transaction leaves a window in
-  // which a concurrent public read repopulates the cache from pre-commit data
-  // and pins the stale ranking for another five minutes.
-  invalidateTopDonors();
-  return updated;
+  return donation;
 };
 
 /**
  * Generate the PDF receipt, store it, and email it to the donor — exactly once.
- * Uses a conditional `updateMany` on `receiptSentAt` as a claim lock so a
- * concurrent verify + webhook don't both send. Best-effort: on failure the
- * lock is released so a later retry (webhook) can complete it.
+ * Uses a conditional `updateMany` on `receiptSentAt` as a claim lock, so two
+ * admins pressing Approve at the same moment don't both send. Best-effort: on
+ * failure the lock is released so a later retry can complete it.
  */
 const sendReceipt = async (donationId: string): Promise<void> => {
   const claim = await prisma.donation.updateMany({
@@ -232,10 +276,10 @@ const sendReceipt = async (donationId: string): Promise<void> => {
       donorEmail,
       amount: d.amount,
       currency: d.currency,
-      paymentId: d.razorpayPaymentId,
-      orderId: d.razorpayOrderId,
+      reference: d.reference,
       method: d.paymentMethod,
       paidAt,
+      verifiedAt: d.verifiedAt,
       message: d.message,
     });
 
@@ -260,7 +304,7 @@ const sendReceipt = async (donationId: string): Promise<void> => {
       amount: d.amount,
       currency: d.currency,
       receiptNo,
-      paymentId: d.razorpayPaymentId,
+      reference: d.reference,
       method: d.paymentMethod,
       paidAt,
       message: d.message,
@@ -292,97 +336,174 @@ const sendReceipt = async (donationId: string): Promise<void> => {
 };
 
 /**
- * Step 2 (frontend callback): verify the Razorpay Checkout signature and
- * complete the donation. All trust is placed in the HMAC check, never the
- * browser-supplied amount/status.
+ * The admin has found this payment in the bank statement.
+ *
+ * This is the only transition that creates money: it mints the receipt number,
+ * stamps who verified it and when, and hands off to `sendReceipt`. A rejected
+ * gift may be approved after the fact — an admin who rejected the wrong row
+ * needs a way back, and the archive clock (`archivedAt`) is cleared with it, so
+ * the purge job no longer sees it.
  */
-export const verifyPayment = async (
-  userId: string,
-  input: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string },
-) => {
-  const ok = razorpay.verifyPaymentSignature(
-    input.razorpay_order_id,
-    input.razorpay_payment_id,
-    input.razorpay_signature,
-  );
-  if (!ok) throw BadRequest("Payment verification failed");
+export const approve = async (adminId: string, id: string, note?: string) => {
+  const existing = await prisma.donation.findUnique({ where: { id } });
+  if (!existing) throw NotFound("Donation not found");
+  if (existing.status === "RECEIVED") {
+    // Idempotent rather than an error: a double-click must not 4xx an admin
+    // after the first press already emailed the receipt.
+    return existing;
+  }
+  if (existing.status === "CANCELLED") {
+    throw BadRequest("The donor withdrew this submission. Ask them to submit it again.");
+  }
 
-  const donation = await prisma.donation.findUnique({
-    where: { razorpayOrderId: input.razorpay_order_id },
+  const donation = await prisma.$transaction(async (tx) => {
+    const d = await tx.donation.update({
+      where: { id },
+      data: {
+        status: "RECEIVED",
+        verifiedAt: new Date(),
+        verifiedById: adminId,
+        receiptNo: existing.receiptNo ?? makeReceiptNo(existing),
+        // The rejection is undone, not merely superseded: leaving the reason on
+        // a received gift would put it on the donor's record for good.
+        rejectionReason: null,
+        archivedAt: null,
+      },
+    });
+    await tx.donationLedgerEntry.create({
+      data: {
+        donationId: d.id,
+        actorId: adminId,
+        entryType: "VERIFIED",
+        status: "RECEIVED",
+        amount: d.amount,
+        proofKey: d.proofKey,
+        note: note ?? `Matched ${d.paymentMethod ?? "payment"} ${d.reference ?? ""}`.trim(),
+      },
+    });
+    return d;
   });
-  if (!donation) throw NotFound("Donation not found for this order");
-  if (donation.userId !== userId) throw Forbidden();
 
-  const payment = await razorpay.fetchPayment(input.razorpay_payment_id);
-  await markReceived(
-    donation.id,
-    input.razorpay_payment_id,
-    input.razorpay_signature,
-    payment?.method ?? null,
-  );
+  // Money just landed: the public honour roll may have a new leader. Dropped
+  // *after* the commit — clearing inside the transaction leaves a window in
+  // which a concurrent public read repopulates the cache from pre-commit data
+  // and pins the stale ranking for another five minutes.
+  invalidateTopDonors();
   await sendReceipt(donation.id);
-
   return prisma.donation.findUnique({ where: { id: donation.id } });
 };
 
 /**
- * The slice of a Razorpay webhook body this handler acts on.
+ * The admin could not match this payment.
  *
- * Every field is optional: the signature has already been verified against the
- * raw bytes above, so this describes *shape*, not trust, and Razorpay sends
- * many event types whose payloads carry none of these. The reader below checks
- * `orderId` and `paymentId` are present before touching a donation, which is
- * what makes the optionality safe rather than merely permissive.
+ * Rejection is the decision on an *unverified claim*, so it is only available
+ * from PLEDGED. A gift already receipted is money in the account and a PDF in
+ * somebody's inbox; reversing that is an accounting matter, and archiving it
+ * here would quietly delete the record of a receipt that exists in the world.
  */
-interface RazorpayWebhookEvent {
-  event?: string;
-  payload?: {
-    payment?: {
-      entity?: { id?: string; order_id?: string; method?: string | null };
-    };
-  };
-}
+export const reject = async (adminId: string, id: string, reason: string) => {
+  const existing = await prisma.donation.findUnique({ where: { id } });
+  if (!existing) throw NotFound("Donation not found");
+  if (existing.status === "RECEIVED") {
+    throw BadRequest(
+      "This gift has already been verified and receipted. Rejecting it would archive a receipt the donor already holds — take it up with the alumni office instead.",
+    );
+  }
+  if (existing.status === "REJECTED") return existing;
+
+  const donation = await prisma.$transaction(async (tx) => {
+    const d = await tx.donation.update({
+      where: { id },
+      data: {
+        status: "REJECTED",
+        rejectionReason: reason,
+        archivedAt: new Date(),
+        verifiedAt: null,
+        verifiedById: adminId,
+      },
+    });
+    await tx.donationLedgerEntry.create({
+      data: {
+        donationId: d.id,
+        actorId: adminId,
+        entryType: "REJECTED",
+        status: "REJECTED",
+        amount: d.amount,
+        proofKey: d.proofKey,
+        note: reason,
+      },
+    });
+    return d;
+  });
+
+  invalidateTopDonors();
+
+  try {
+    const mail = donationRejectedEmail({
+      donorName: donation.donorName || "Donor",
+      amount: donation.amount,
+      reference: donation.reference ?? "—",
+      reason,
+    });
+    if (donation.donorEmail) {
+      await sendEmail({
+        to: donation.donorEmail,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+    }
+  } catch (e) {
+    logger.error({ err: e, donationId: id }, "failed to send donation rejection email");
+  }
+
+  return donation;
+};
 
 /**
- * Step 2 (webhook): the source of truth if the browser never returns. Verifies
- * the webhook signature, then completes the matching donation. Returns quickly
- * and never throws on unknown events so Razorpay always gets a 2xx.
+ * A donor withdrawing their own submission, before the office has decided.
+ *
+ * Mirrors the collaboration rule: withdrawal stops at the decision. Once an
+ * admin has verified or rejected it the row carries their finding, and the
+ * donor deleting it would erase what they were told.
  */
-export const handleWebhook = async (rawBody: Buffer, signature: string | undefined) => {
-  if (!signature || !razorpay.verifyWebhookSignature(rawBody, signature)) {
-    throw BadRequest("Invalid webhook signature");
+export const cancelOwn = async (userId: string, id: string) => {
+  const donation = await prisma.donation.findUnique({ where: { id } });
+  if (!donation) throw NotFound("Donation not found");
+  if (donation.userId !== userId) throw Forbidden();
+  if (donation.status !== "PLEDGED") {
+    throw BadRequest("The alumni office has already reviewed this submission.");
   }
-  let event: RazorpayWebhookEvent;
-  try {
-    event = JSON.parse(rawBody.toString("utf8")) as RazorpayWebhookEvent;
-  } catch {
-    throw BadRequest("Invalid webhook payload");
-  }
-
-  if (event?.event === "payment.captured" || event?.event === "order.paid") {
-    const payment = event?.payload?.payment?.entity;
-    const orderId = payment?.order_id;
-    const paymentId = payment?.id;
-    if (orderId && paymentId) {
-      const donation = await prisma.donation.findUnique({ where: { razorpayOrderId: orderId } });
-      if (donation) {
-        await markReceived(donation.id, paymentId, null, payment?.method ?? null);
-        await sendReceipt(donation.id);
-      } else {
-        logger.warn({ orderId }, "webhook: no donation matches order");
-      }
-    }
-  }
-  return { received: true };
+  const updated = await prisma.$transaction(async (tx) => {
+    const d = await tx.donation.update({ where: { id }, data: { status: "CANCELLED" } });
+    await tx.donationLedgerEntry.create({
+      data: {
+        donationId: d.id,
+        actorId: userId,
+        entryType: "WITHDRAWN",
+        status: "CANCELLED",
+        amount: d.amount,
+        note: "Withdrawn by the donor",
+      },
+    });
+    return d;
+  });
+  return updated;
 };
+
+/** The ledger's filters, shared by the page query and the totals above it. */
+const ledgerWhere = (q: {
+  campaignId?: string;
+  status?: DonationStatus;
+}): Prisma.DonationWhereInput => ({
+  ...(q.campaignId && { campaignId: q.campaignId }),
+  ...(q.status && { status: q.status }),
+});
 
 export const listDonations = async (
   q: PaginationQuery & { campaignId?: string; status?: DonationStatus },
 ) => {
-  const where: Prisma.DonationWhereInput = {
-    ...(q.campaignId && { campaignId: q.campaignId }),
-    ...(q.status && { status: q.status }),
-  };
+  const where = ledgerWhere(q);
   const [items, total] = await Promise.all([
     prisma.donation.findMany({
       where,
@@ -390,6 +511,7 @@ export const listDonations = async (
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true } },
         campaign: { select: { id: true, title: true } },
+        verifiedBy: { select: { id: true, firstName: true, lastName: true } },
         ledgerEntries: { orderBy: { createdAt: "desc" }, take: 5 },
       },
       ...paginate(q),
@@ -401,6 +523,95 @@ export const listDonations = async (
     d.isAnonymous ? { ...d, user: { id: null, firstName: "Anonymous", lastName: "" } } : d,
   );
   return { items: cleaned, pagination: paginationMeta(total, q) };
+};
+
+/**
+ * The totals the admin ledger prints above itself.
+ *
+ * They exist as their own query because the ledger is paginated: computing them
+ * from the rows on screen would have made "Total Received" mean "received on
+ * page 3", which is worse than not showing it. Every figure honours the same
+ * filters as the page below it, so the two always agree about what is being
+ * looked at.
+ *
+ * `donorCount` is the one thing Prisma cannot express — there is no
+ * `COUNT(DISTINCT)` in its query builder, and the alternatives (`groupBy` on
+ * `userId`, or `findMany` with `distinct`) both return one row per donor to
+ * Node just to measure the array. The filters are interpolated as parameters,
+ * never as text.
+ */
+export interface DonationStats {
+  /** Rupees received, all time, within the current filters. */
+  totalReceived: number;
+  /** Rupees received since the 1st of the current month. */
+  thisMonthReceived: number;
+  /** Distinct donors with at least one row in the filtered set. */
+  donorCount: number;
+  /** Submissions awaiting a decision — deliberately ignores the status filter. */
+  pendingCount: number;
+  /** Received totals per cause, largest first. `campaignId: null` is the general fund. */
+  byCampaign: { campaignId: string | null; title: string; received: number; count: number }[];
+}
+
+export const stats = async (q: {
+  campaignId?: string;
+  status?: DonationStatus;
+}): Promise<DonationStats> => {
+  const where = ledgerWhere(q);
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  const [allTime, thisMonth, donors, pendingCount, counted, received, campaigns] =
+    await Promise.all([
+      prisma.donation.aggregate({ where: { ...where, status: "RECEIVED" }, _sum: { amount: true } }),
+      prisma.donation.aggregate({
+        where: { ...where, status: "RECEIVED", createdAt: { gte: monthStart } },
+        _sum: { amount: true },
+      }),
+      prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(DISTINCT "userId") AS count
+          FROM "Donation"
+         WHERE (${q.campaignId ?? null}::text IS NULL OR "campaignId" = ${q.campaignId ?? null}::text)
+           AND (${q.status ?? null}::text IS NULL OR "status"::text = ${q.status ?? null}::text)
+      `,
+      // Deliberately not filtered by status: this card counts what still needs
+      // deciding, and an admin who has filtered the ledger to RECEIVED still
+      // has to see submissions piling up behind them.
+      prisma.donation.count({
+        where: { ...(q.campaignId && { campaignId: q.campaignId }), status: "PLEDGED" },
+      }),
+      // Two group-bys rather than one: `count` is every row matching the
+      // filters, `received` only the money among them, and no single grouped
+      // aggregate can express both.
+      prisma.donation.groupBy({ by: ["campaignId"], where, _count: { _all: true } }),
+      prisma.donation.groupBy({
+        by: ["campaignId"],
+        where: { ...where, status: "RECEIVED" },
+        _sum: { amount: true },
+      }),
+      // Every campaign, unfiltered: there are a handful of them, and asking for
+      // only the grouped ids would make this wait on the group-by above.
+      prisma.donationCampaign.findMany({ select: { id: true, title: true } }),
+    ]);
+
+  const receivedMap = new Map(received.map((r) => [r.campaignId, r._sum.amount ?? 0]));
+  const titles = new Map(campaigns.map((c) => [c.id, c.title]));
+
+  return {
+    totalReceived: allTime._sum.amount ?? 0,
+    thisMonthReceived: thisMonth._sum.amount ?? 0,
+    donorCount: Number(donors[0]?.count ?? 0),
+    pendingCount,
+    byCampaign: counted
+      .map((g) => ({
+        campaignId: g.campaignId,
+        title: g.campaignId ? titles.get(g.campaignId) ?? "Unknown campaign" : "General fund",
+        received: receivedMap.get(g.campaignId) ?? 0,
+        count: g._count._all,
+      }))
+      .sort((a, b) => b.received - a.received),
+  };
 };
 
 /* -------------------------------------------------------------------------- */
@@ -426,11 +637,12 @@ export interface PublicDonor {
  *     excluded from the sum entirely, so ticking that box on the donation form
  *     keeps a donor off this wall — and off it retroactively, since the total
  *     is recomputed from the rows every time.
- *  2. **Only `RECEIVED` money counts.** A `PLEDGED` row is an unpaid Razorpay
- *     order anyone can create, so counting it would let a visitor put their own
- *     name on the landing page for free.
+ *  2. **Only `RECEIVED` money counts.** A `PLEDGED` row is an unverified claim
+ *     any member can file in ten seconds, so counting it would let someone put
+ *     their own name on the landing page for free — and a `REJECTED` one is a
+ *     claim the office has already refused.
  *  3. **The name comes from the account, not the donation snapshot.** The
- *     `donorName` column is frozen at payment time for the receipt; this reads
+ *     `donorName` column is frozen at submission time for the receipt; this reads
  *     `User` and `Profile` live, so a renamed or newly photographed alumnus is
  *     shown correctly, and a new top gift reorders the list on its own.
  */
@@ -511,37 +723,8 @@ export const myDonations = (userId: string) =>
   prisma.donation.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
-    include: { campaign: true },
+    // The card draws the cause's name, not the campaign — `include: true` was
+    // shipping its description, goal, cover key and dates per row.
+    include: { campaign: { select: { id: true, title: true } } },
     take: MY_DONATIONS_LIMIT,
   });
-
-export const updateDonationStatus = async (
-  actorId: string,
-  id: string,
-  data: { status: DonationStatus; receiptKey?: string; note?: string },
-) => {
-  const donation = await prisma.$transaction(async (tx) => {
-    const donation = await tx.donation.update({
-      where: { id },
-      data: { status: data.status, receiptKey: data.receiptKey },
-    });
-    await tx.donationLedgerEntry.create({
-      data: {
-        donationId: donation.id,
-        actorId,
-        entryType: "STATUS_UPDATED",
-        status: donation.status,
-        amount: donation.amount,
-        proofKey: donation.proofKey,
-        receiptKey: data.receiptKey ?? donation.receiptKey,
-        note: data.note ?? null,
-      },
-    });
-    return donation;
-  });
-
-  // An admin moving a gift in or out of RECEIVED changes the honour roll —
-  // after the commit, for the same reason as `markReceived`.
-  invalidateTopDonors();
-  return donation;
-};

@@ -22,7 +22,6 @@ const MAP_DATA: AlumniMapData = {
 const apiGet = vi.fn().mockResolvedValue(MAP_DATA);
 vi.mock("@/lib/api", () => ({
   api: { get: (...args: unknown[]) => apiGet(...args), patch: vi.fn().mockResolvedValue({}) },
-  apiUrl: (p: string) => p,
   tokenStore: { get: () => null, set: vi.fn(), clear: vi.fn() },
 }));
 

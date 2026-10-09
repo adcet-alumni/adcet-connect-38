@@ -11,6 +11,8 @@
  */
 import nodemailer from "nodemailer";
 import type { SentMessageInfo } from "nodemailer";
+import MailComposer from "nodemailer/lib/mail-composer/index.js";
+import { SESClient, SendEmailCommand, SendRawEmailCommand } from "@aws-sdk/client-ses";
 import { logger } from "./logger.js";
 
 // ── Public types ────────────────────────────────────────────────────────
@@ -98,6 +100,91 @@ class SmtpTransport implements MailTransport {
   }
 }
 
+/** 
+ * Real SES transport using AWS SDK.
+ * Note: SES handles DKIM signing automatically when the domain is verified in the SES console.
+ */
+class SesTransport implements MailTransport {
+  private client: SESClient;
+  private from: string;
+  private configSet?: string;
+
+  constructor() {
+    this.from = process.env.SES_FROM || process.env.SMTP_FROM || `"ADCET Alumni Portal" <noreply@adcet.in>`;
+    this.configSet = process.env.SES_CONFIGURATION_SET;
+    
+    this.client = new SESClient({
+      region: process.env.SES_REGION!,
+      credentials:
+        process.env.SES_ACCESS_KEY && process.env.SES_SECRET_KEY
+          ? {
+              accessKeyId: process.env.SES_ACCESS_KEY,
+              secretAccessKey: process.env.SES_SECRET_KEY,
+            }
+          : undefined,
+    });
+  }
+
+  async send(mail: OutgoingEmail): Promise<void> {
+    const to = Array.isArray(mail.to) ? mail.to : [mail.to];
+
+    try {
+      if (mail.attachments && mail.attachments.length > 0) {
+        const mailOptions = {
+          from: this.from,
+          to: to.join(", "),
+          subject: mail.subject,
+          text: mail.text,
+          html: mail.html,
+          attachments: mail.attachments.map((a) => ({
+            filename: a.filename,
+            content: a.content as Buffer | string | undefined,
+            path: a.path,
+            contentType: a.contentType,
+          })),
+        };
+
+        // @ts-expect-error MailComposer is not exported with explicit types
+        const mailComposer = new MailComposer(mailOptions);
+        const messageBuffer = await mailComposer.compile().build();
+
+        const command = new SendRawEmailCommand({
+          RawMessage: { Data: messageBuffer },
+          ConfigurationSetName: this.configSet,
+        });
+
+        const result = await this.client.send(command);
+        logger.info(
+          { messageId: result.MessageId, to: mail.to },
+          `[mailer] sent via SES (raw): ${mail.subject}`,
+        );
+      } else {
+        const command = new SendEmailCommand({
+          Source: this.from,
+          Destination: { ToAddresses: to },
+          Message: {
+            Subject: { Data: mail.subject },
+            Body: {
+              Text: { Data: mail.text },
+              ...(mail.html ? { Html: { Data: mail.html } } : {}),
+            },
+          },
+          ConfigurationSetName: this.configSet,
+        });
+
+        const result = await this.client.send(command);
+        logger.info(
+          { messageId: result.MessageId, to: mail.to },
+          `[mailer] sent via SES: ${mail.subject}`,
+        );
+      }
+    } catch (error) {
+      logger.error({ err: error, to: mail.to }, `[mailer] SES send failed: ${mail.subject}`);
+      throw error;
+    }
+  }
+}
+
 /** No-op transport for tests. */
 class NoopTransport implements MailTransport {
   async send(_mail: OutgoingEmail): Promise<void> {
@@ -114,12 +201,15 @@ const getTransport = (): MailTransport => {
 
   if (process.env.NODE_ENV === "test") {
     transport = new NoopTransport();
+  } else if (process.env.SES_REGION) {
+    transport = new SesTransport();
+    logger.info(`[mailer] using SES transport (${process.env.SES_REGION})`);
   } else if (process.env.SMTP_HOST) {
     transport = new SmtpTransport();
     logger.info(`[mailer] using SMTP transport (${process.env.SMTP_HOST})`);
   } else {
     transport = new ConsoleTransport();
-    logger.info("[mailer] no SMTP_HOST set — using console transport");
+    logger.info("[mailer] no SES_REGION or SMTP_HOST set — using console transport");
   }
 
   return transport;

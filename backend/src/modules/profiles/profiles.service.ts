@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import { NotFound } from "../../lib/errors.js";
 import { resolveProfileLocation } from "../../lib/geocode.js";
 import { personSelect } from "../../lib/selects.js";
+import { getStorage } from "../../storage/index.js";
+import { logger } from "../../lib/logger.js";
 
 const profileInclude = {
   experiences: { orderBy: { startDate: "desc" as const } },
@@ -109,11 +111,49 @@ const withResolvedLocation = async (userId: string, data: Record<string, unknown
 
 export const updateMyProfile = async (userId: string, data: Record<string, unknown>) => {
   const withLocation = await withResolvedLocation(userId, data);
-  return prisma.profile.upsert({
+
+  // Capture the old keys before overwriting so we can clean up storage.
+  const replacingAvatar = "avatarKey" in data;
+  const replacingBanner = "bannerKey" in data;
+  let oldAvatarKey: string | null = null;
+  let oldBannerKey: string | null = null;
+
+  if (replacingAvatar || replacingBanner) {
+    const existing = await prisma.profile.findUnique({
+      where: { userId },
+      select: {
+        ...(replacingAvatar && { avatarKey: true }),
+        ...(replacingBanner && { bannerKey: true }),
+      },
+    });
+    if (existing) {
+      oldAvatarKey = (existing as Record<string, unknown>).avatarKey as string | null;
+      oldBannerKey = (existing as Record<string, unknown>).bannerKey as string | null;
+    }
+  }
+
+  const profile = await prisma.profile.upsert({
     where: { userId },
     update: withLocation,
     create: { userId, ...withLocation },
   });
+
+  // Best-effort delete old storage objects that were replaced.
+  const keysToDelete: string[] = [];
+  if (replacingAvatar && oldAvatarKey && oldAvatarKey !== data.avatarKey) {
+    keysToDelete.push(oldAvatarKey);
+  }
+  if (replacingBanner && oldBannerKey && oldBannerKey !== data.bannerKey) {
+    keysToDelete.push(oldBannerKey);
+  }
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((key) => storage.delete(key))).catch((err) =>
+      logger.warn({ err, userId, keys: keysToDelete }, "Failed to clean up old profile media"),
+    );
+  }
+
+  return profile;
 };
 
 export const addExperience = async (userId: string, data: Record<string, unknown>) => {

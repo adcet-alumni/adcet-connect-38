@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Suspense, lazy } from "react";
+import { registerRoute } from "./lib/routePreload";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import AuthPage from "./pages/AuthPage";
 import LandingPage from "./pages/LandingPage";
@@ -29,60 +30,68 @@ import { ThemeProvider } from "./contexts/ThemeContext";
  * paint and the hop most visitors make next, and splitting them would only add
  * a round trip. NotFound stays because it has named exports, which React.lazy
  * cannot take, and it is a few lines.
+ *
+ * Each route goes through `route()` rather than `lazy()` directly, which files
+ * the import thunk in `lib/routePreload.ts` under the path it serves. That is
+ * what lets the layouts warm their pages on idle and the nav links warm one on
+ * hover, so the split costs a round trip only when somebody navigates faster
+ * than the browser can prefetch — see the module for why.
  */
-const CompleteProfilePage = lazy(() => import("./pages/CompleteProfilePage"));
-const AboutPage = lazy(() => import("./pages/AboutPage"));
-const ContactPage = lazy(() => import("./pages/ContactPage"));
-const NewsPage = lazy(() => import("./pages/NewsPage"));
-const NewslettersPage = lazy(() => import("./pages/NewslettersPage"));
-const EsteemedAlumniPage = lazy(() => import("./pages/EsteemedAlumniPage"));
-const GalleryPage = lazy(() => import("./pages/GalleryPage"));
-const AlumniMapPage = lazy(() => import("./pages/AlumniMapPage"));
-const TestimonialsPage = lazy(() => import("./pages/TestimonialsPage"));
-const SupportPage = lazy(() => import("./pages/SupportPage"));
-const DashboardLayout = lazy(() => import("./components/DashboardLayout"));
-const DashboardHome = lazy(() => import("./pages/DashboardHome"));
-const FeedPage = lazy(() => import("./pages/FeedPage"));
-const PostDetailPage = lazy(() => import("./pages/PostDetailPage"));
-const EventsPage = lazy(() => import("./pages/EventsPage"));
-const JobsPage = lazy(() => import("./pages/JobsPage"));
-const JobDetailPage = lazy(() => import("./pages/JobDetailPage"));
-const EventDetailPage = lazy(() => import("./pages/EventDetailPage"));
-const MyJobPostsPage = lazy(() => import("./pages/MyJobPostsPage"));
-const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
-const NotificationPage = lazy(() => import("./pages/NotificationPage"));
-const ProfilePage = lazy(() => import("./pages/ProfilePage"));
-const AchievementsPage = lazy(() => import("./pages/AchievementsPage"));
-const DonationsPage = lazy(() => import("./pages/DonationsPage"));
-const GeoMapPage = lazy(() => import("./pages/GeoMapPage"));
-const ChaptersPage = lazy(() => import("./pages/ChaptersPage"));
-const CollaborationPage = lazy(() => import("./pages/CollaborationPage"));
-const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
-const AlumniDirectoryPage = lazy(() => import("./pages/AlumniDirectoryPage"));
-const AchievementDetailPage = lazy(() => import("./pages/AchievementDetailPage"));
-const PublicAchievementPage = lazy(() => import("./pages/PublicAchievementPage"));
-const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
-const OAuthCallbackPage = lazy(() => import("./pages/OAuthCallbackPage"));
-const AdminLayout = lazy(() => import("./components/AdminLayout"));
-const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
-const UserApprovalsPage = lazy(() => import("./pages/admin/UserApprovalsPage"));
-const EventApprovalsPage = lazy(() => import("./pages/admin/EventApprovalsPage"));
-const JobApprovalsPage = lazy(() => import("./pages/admin/JobApprovalsPage"));
-const AchievementsAdminPage = lazy(() => import("./pages/admin/AchievementsAdminPage"));
-const DonationsAdminPage = lazy(() => import("./pages/admin/DonationsAdminPage"));
-const AdminAnalyticsPage = lazy(() => import("./pages/admin/AdminAnalyticsPage"));
-const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
-const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
-const AdminGeoMapPage = lazy(() => import("./pages/admin/AdminGeoMapPage"));
-const ChaptersAdminPage = lazy(() => import("./pages/admin/ChaptersAdminPage"));
-const NewsroomPage = lazy(() => import("./pages/admin/NewsroomPage"));
-const GalleryAdminPage = lazy(() => import("./pages/admin/GalleryAdminPage"));
-const CollaborationAdminPage = lazy(() => import("./pages/admin/CollaborationAdminPage"));
-const StaticContentPage = lazy(() => import("./pages/StaticContentPage"));
-const AccountStatusPage = lazy(() => import("./pages/AccountStatusPage"));
-const SupportInboxPage = lazy(() => import("./pages/admin/SupportInboxPage"));
-const FeedModerationPage = lazy(() => import("./pages/admin/FeedModerationPage"));
-const AdminUserDetailPage = lazy(() => import("./pages/admin/AdminUserDetailPage"));
+const route = <T,>(path: string, load: () => Promise<{ default: T }>) =>
+  lazy(registerRoute(path, load));
+const CompleteProfilePage = route("/complete-profile", () => import("./pages/CompleteProfilePage"));
+const AboutPage = route("/about", () => import("./pages/AboutPage"));
+const ContactPage = route("/contact", () => import("./pages/ContactPage"));
+const NewsPage = route("/news", () => import("./pages/NewsPage"));
+const NewslettersPage = route("/newsletters", () => import("./pages/NewslettersPage"));
+const EsteemedAlumniPage = route("/esteemed-alumni", () => import("./pages/EsteemedAlumniPage"));
+const GalleryPage = route("/gallery", () => import("./pages/GalleryPage"));
+const AlumniMapPage = route("/alumni-map", () => import("./pages/AlumniMapPage"));
+const TestimonialsPage = route("/testimonials", () => import("./pages/TestimonialsPage"));
+const SupportPage = route("/support", () => import("./pages/SupportPage"));
+const PrivacyPolicyPage = route("/privacy", () => import("./pages/PrivacyPolicyPage"));
+const DashboardLayout = route("/dashboard", () => import("./components/DashboardLayout"));
+const DashboardHome = route("/dashboard/home", () => import("./pages/DashboardHome"));
+const FeedPage = route("/dashboard/feed", () => import("./pages/FeedPage"));
+const PostDetailPage = route("/dashboard/feed/", () => import("./pages/PostDetailPage"));
+const EventsPage = route("/dashboard/events", () => import("./pages/EventsPage"));
+const JobsPage = route("/dashboard/jobs", () => import("./pages/JobsPage"));
+const JobDetailPage = route("/dashboard/jobs/", () => import("./pages/JobDetailPage"));
+const EventDetailPage = route("/dashboard/events/", () => import("./pages/EventDetailPage"));
+const MyJobPostsPage = route("/dashboard/jobs/mine", () => import("./pages/MyJobPostsPage"));
+const NotificationsPage = route("/dashboard/notifications", () => import("./pages/NotificationsPage"));
+const NotificationPage = route("/dashboard/notifications/", () => import("./pages/NotificationPage"));
+const ProfilePage = route("/dashboard/profile", () => import("./pages/ProfilePage"));
+const AchievementsPage = route("/dashboard/achievements", () => import("./pages/AchievementsPage"));
+const DonationsPage = route("/dashboard/donations", () => import("./pages/DonationsPage"));
+const GeoMapPage = route("/dashboard/geomap", () => import("./pages/GeoMapPage"));
+const ChaptersPage = route("/dashboard/chapters", () => import("./pages/ChaptersPage"));
+const CollaborationPage = route("/dashboard/collaboration", () => import("./pages/CollaborationPage"));
+const AnalyticsPage = route("/dashboard/analytics", () => import("./pages/AnalyticsPage"));
+const AlumniDirectoryPage = route("/dashboard/alumni", () => import("./pages/AlumniDirectoryPage"));
+const AchievementDetailPage = route("/dashboard/achievements/", () => import("./pages/AchievementDetailPage"));
+const PublicAchievementPage = route("/achievements/", () => import("./pages/PublicAchievementPage"));
+const ResetPasswordPage = route("/reset-password", () => import("./pages/ResetPasswordPage"));
+const AdminLayout = route("/admin", () => import("./components/AdminLayout"));
+const AdminDashboard = route("/admin/home", () => import("./pages/admin/AdminDashboard"));
+const UserApprovalsPage = route("/admin/approvals", () => import("./pages/admin/UserApprovalsPage"));
+const EventApprovalsPage = route("/admin/events", () => import("./pages/admin/EventApprovalsPage"));
+const JobApprovalsPage = route("/admin/jobs", () => import("./pages/admin/JobApprovalsPage"));
+const AchievementsAdminPage = route("/admin/achievements", () => import("./pages/admin/AchievementsAdminPage"));
+const DonationsAdminPage = route("/admin/donations", () => import("./pages/admin/DonationsAdminPage"));
+const AdminAnalyticsPage = route("/admin/analytics", () => import("./pages/admin/AdminAnalyticsPage"));
+const ReportsPage = route("/admin/reports", () => import("./pages/admin/ReportsPage"));
+const SettingsPage = route("/admin/settings", () => import("./pages/admin/SettingsPage"));
+const AdminGeoMapPage = route("/admin/geomap", () => import("./pages/admin/AdminGeoMapPage"));
+const ChaptersAdminPage = route("/admin/chapters", () => import("./pages/admin/ChaptersAdminPage"));
+const NewsroomPage = route("/admin/newsroom", () => import("./pages/admin/NewsroomPage"));
+const GalleryAdminPage = route("/admin/gallery", () => import("./pages/admin/GalleryAdminPage"));
+const CollaborationAdminPage = route("/admin/collaboration", () => import("./pages/admin/CollaborationAdminPage"));
+const StaticContentPage = route("/dashboard/support", () => import("./pages/StaticContentPage"));
+const AccountStatusPage = route("/dashboard/status", () => import("./pages/AccountStatusPage"));
+const SupportInboxPage = route("/admin/support", () => import("./pages/admin/SupportInboxPage"));
+const FeedModerationPage = route("/admin/feed", () => import("./pages/admin/FeedModerationPage"));
+const AdminUserDetailPage = route("/admin/users/", () => import("./pages/admin/AdminUserDetailPage"));
 
 /** Shown while a route's chunk is in flight. Deliberately quiet — a spinner
  *  that appears for 80 ms reads as a flicker, so this is just held space. */
@@ -102,12 +111,21 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        {/*
+          * `v7_startTransition` is what stops a navigation from blanking the
+          * screen. Without it, a route whose chunk is still in flight suspends
+          * the tree and React swaps the *whole* app — dashboard shell included
+          * — for the fallback below, which reads as the page reloading. Routing
+          * inside a transition instead keeps the current screen painted until
+          * the new one is ready, so a slow chunk costs a pause, not a flash.
+          */}
+        <BrowserRouter future={{ v7_startTransition: true }}>
           <AuthProvider>
             {/*
-              * One boundary around the whole table rather than per route: the
-              * layouts are split too, so a dashboard navigation can suspend on
-              * the layout as well as on the page inside it.
+              * The outer boundary covers entering a section — the layout chunk
+              * itself. Navigation *within* a layout is caught by that layout's
+              * own boundary around its `<Outlet />`, so the nav and sidebar
+              * stay on screen and only the content pane waits.
               */}
             <Suspense fallback={<RouteFallback />}>
             <Routes>
@@ -128,15 +146,16 @@ const App = () => (
               {/* Reached only from the landing-page carousel — deliberately not in the nav. */}
               <Route path="/testimonials" element={<TestimonialsPage />} />
               <Route path="/support" element={<SupportPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
               {/* The shareable link, for readers with no session. Members open
                   /dashboard/achievements/:id instead, which keeps the portal
                   shell — see PublicAchievementPage. */}
               <Route path="/achievements/:id" element={<PublicAchievementPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route path="/auth/callback" element={<OAuthCallbackPage />} />
 
-              {/* Onboarding for accounts without the mandatory profile —
-                  chiefly SSO sign-ins. Sits inside ProtectedRoute (login
+              {/* Onboarding for accounts without the mandatory profile — the
+                  ones that predate sign-up collecting it, and any the office
+                  imported. Sits inside ProtectedRoute (login
                   required) but outside DashboardLayout, so there is no nav to
                   escape into until the form is done. */}
               <Route element={<ProtectedRoute />}>

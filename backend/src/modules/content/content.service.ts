@@ -2,6 +2,8 @@ import { prisma } from "../../lib/prisma.js";
 import { NotFound } from "../../lib/errors.js";
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
 import { sendEmail } from "../../lib/mailer.js";
+import { getStorage } from "../../storage/index.js";
+import { logger } from "../../lib/logger.js";
 
 /* ----------------------------- News ----------------------------- */
 export const listNews = async (q: PaginationQuery) => {
@@ -33,7 +35,15 @@ export const updateNews = async (
   return prisma.newsItem.update({ where: { id }, data });
 };
 export const deleteNews = async (id: string) => {
+  const existing = await prisma.newsItem.findUnique({ where: { id }, select: { imageKey: true } });
   await prisma.newsItem.delete({ where: { id } }).catch(() => undefined);
+
+  // Best-effort cleanup of storage objects.
+  if (existing?.imageKey) {
+    getStorage().delete(existing.imageKey).catch((err) =>
+      logger.warn({ err, id, key: existing.imageKey }, "Failed to clean up deleted news image"),
+    );
+  }
 };
 
 /* ----------------------------- Newsletters ----------------------------- */
@@ -63,10 +73,37 @@ export const updateNewsletter = async (
 ) => {
   const existing = await prisma.newsletter.findUnique({ where: { id } });
   if (!existing) throw NotFound();
-  return prisma.newsletter.update({ where: { id }, data });
+  const updated = await prisma.newsletter.update({ where: { id }, data });
+
+  // Best-effort cleanup of old storage objects when keys are replaced.
+  const keysToDelete: string[] = [];
+  if (data.fileKey && existing.fileKey && existing.fileKey !== data.fileKey) {
+    keysToDelete.push(existing.fileKey);
+  }
+  if (typeof data.coverKey === "string" && existing.coverKey && existing.coverKey !== data.coverKey) {
+    keysToDelete.push(existing.coverKey);
+  }
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((key) => storage.delete(key))).catch((err) =>
+      logger.warn({ err, id, keys: keysToDelete }, "Failed to clean up old newsletter files"),
+    );
+  }
+
+  return updated;
 };
 export const deleteNewsletter = async (id: string) => {
+  const existing = await prisma.newsletter.findUnique({ where: { id }, select: { fileKey: true, coverKey: true } });
   await prisma.newsletter.delete({ where: { id } }).catch(() => undefined);
+
+  // Best-effort cleanup of storage objects.
+  const keysToDelete = [existing?.fileKey, existing?.coverKey].filter(Boolean) as string[];
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((key) => storage.delete(key))).catch((err) =>
+      logger.warn({ err, id, keys: keysToDelete }, "Failed to clean up deleted newsletter files"),
+    );
+  }
 };
 
 /* ----------------------------- Support inbox ----------------------------- */

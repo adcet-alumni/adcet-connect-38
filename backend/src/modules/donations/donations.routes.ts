@@ -6,20 +6,17 @@ import { requireApproved } from "../../middlewares/requireApproved.js";
 import { validate } from "../../middlewares/validate.js";
 import * as ctrl from "./donations.controller.js";
 import {
+  approveDonationSchema,
   campaignInputSchema,
-  createOrderSchema,
-  verifyPaymentSchema,
-  donationStatusSchema,
   listCampaignsQuery,
+  donationStatsQuery,
   listDonationsQuery,
+  rejectDonationSchema,
+  submitDonationSchema,
   topDonorsQuery,
 } from "./donations.validators.js";
 
 export const donationsRouter = Router();
-
-// Razorpay webhook — PUBLIC (no auth). Razorpay signs the payload; we verify
-// the HMAC signature in the service. Must be declared before auth-gated routes.
-donationsRouter.post("/webhook", asyncHandler(ctrl.webhook));
 
 // Top donors — PUBLIC (no auth): the honour roll on the landing page. Returns
 // names, lifetime totals and avatars only, for donors who did **not** give
@@ -30,7 +27,7 @@ donationsRouter.get(
   asyncHandler(ctrl.topDonors),
 );
 
-// Campaigns (public read, admin write)
+// Campaigns (member read, admin write)
 donationsRouter.get(
   "/campaigns",
   requireAuth,
@@ -60,22 +57,41 @@ donationsRouter.delete(
   asyncHandler(ctrl.deleteCampaign),
 );
 
-// Donations — Razorpay payment flow (create order → pay → verify)
-donationsRouter.post(
-  "/order",
+/*
+ * Donations — pay off-portal, declare, then wait for the office.
+ *
+ * There is no gateway callback and no webhook to receive one: `POST /` files
+ * what the donor says they paid, and nothing but an admin's `approve` turns it
+ * into money. `payment-details` is what the donor pays *against*, so it is
+ * behind the same member gate as the form itself.
+ */
+donationsRouter.get(
+  "/payment-details",
   requireAuth,
   requireApproved,
-  validate(createOrderSchema),
-  asyncHandler(ctrl.createOrder),
+  asyncHandler(ctrl.paymentDetails),
 );
 donationsRouter.post(
-  "/verify",
+  "/",
   requireAuth,
   requireApproved,
-  validate(verifyPaymentSchema),
-  asyncHandler(ctrl.verifyPayment),
+  validate(submitDonationSchema),
+  asyncHandler(ctrl.submit),
 );
 donationsRouter.get("/me", requireAuth, requireApproved, asyncHandler(ctrl.myDonations));
+// A donor withdrawing their own submission — only while it is still PLEDGED.
+donationsRouter.post("/:id/withdraw", requireAuth, requireApproved, asyncHandler(ctrl.cancelOwn));
+
+// The alumni office's side: the ledger, its totals, and the two decisions.
+// `/stats` is declared before `/:id/...` for clarity, not necessity — it is a
+// GET on a distinct path.
+donationsRouter.get(
+  "/stats",
+  requireAuth,
+  requireAdmin,
+  validate(donationStatsQuery, "query"),
+  asyncHandler(ctrl.donationStats),
+);
 donationsRouter.get(
   "/",
   requireAuth,
@@ -83,10 +99,17 @@ donationsRouter.get(
   validate(listDonationsQuery, "query"),
   asyncHandler(ctrl.listDonations),
 );
-donationsRouter.patch(
-  "/:id/status",
+donationsRouter.post(
+  "/:id/approve",
   requireAuth,
   requireAdmin,
-  validate(donationStatusSchema),
-  asyncHandler(ctrl.updateDonationStatus),
+  validate(approveDonationSchema),
+  asyncHandler(ctrl.approve),
+);
+donationsRouter.post(
+  "/:id/reject",
+  requireAuth,
+  requireAdmin,
+  validate(rejectDonationSchema),
+  asyncHandler(ctrl.reject),
 );

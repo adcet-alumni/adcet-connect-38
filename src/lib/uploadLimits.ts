@@ -30,6 +30,11 @@ export const UPLOAD_MAX_BYTES = {
   "newsletter-cover": 10 * MB,
   gallery: 10 * MB,
   collaboration: 10 * MB,
+  // A screenshot off a UPI app, and the payee's QR image.
+  "donation-proof": 10 * MB,
+  "donation-qr": 5 * MB,
+  // A photo of a marksheet or a scanned certificate, off a phone.
+  identity: 10 * MB,
 } as const satisfies Record<string, number>;
 
 /** The scopes an upload can be filed under, mirroring `UPLOAD_SCOPES`. */

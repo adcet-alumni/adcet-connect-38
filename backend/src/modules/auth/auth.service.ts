@@ -15,12 +15,18 @@ import { BadRequest, Conflict, ServiceUnavailable, Unauthorized } from "../../li
 import { sendEmail } from "../../lib/mailer.js";
 import { emailVerificationOtpEmail, passwordResetEmail } from "../../lib/email-templates.js";
 import { logger } from "../../lib/logger.js";
+import { getStorage } from "../../storage/index.js";
 import { env } from "../../config/env.js";
-import { admissionYearFor, type AppRoleName } from "../../config/constants.js";
+import {
+  admissionYearFor,
+  IDENTITY_DOCUMENT_MIME_TYPES,
+  PENDING_UPLOAD_RETENTION_HOURS,
+  UPLOAD_MAX_BYTES,
+  type AppRoleName,
+} from "../../config/constants.js";
 import { isProfileComplete } from "../../lib/profileCompletion.js";
 import { resolveProfileLocation } from "../../lib/geocode.js";
 import type { CompleteProfileInput, LoginInput, RegisterInput } from "./auth.validators.js";
-import type { OAuthProfile } from "./providers/index.js";
 
 const REFRESH_TTL_DAYS = 7;
 const RESET_TTL_MINUTES = 60;
@@ -64,6 +70,105 @@ const exposeOtpOnMailFailure = (): boolean =>
  * Resolves with `devCode` only under the escape hatch above — otherwise a
  * delivery failure surfaces as 503 so the UI can tell the user to retry.
  */
+/**
+ * Store the proof-of-study document a sign-up is about to be submitted with.
+ *
+ * This is the only upload path in the application with no session in front of
+ * it, and it has to be: the document is collected *before* the email is
+ * verified, which is before there is an account to own the object or a token to
+ * authorise it. Four things keep that from being an open door —
+ *
+ *  - the route is behind `authLimiter`, the same limiter as sign-up itself;
+ *  - the type is checked here against `IDENTITY_DOCUMENT_MIME_TYPES` rather
+ *    than trusted from the header alone;
+ *  - the size is checked against the bytes actually received, not a declared
+ *    number, because there is nothing here to declare one; and
+ *  - a row that no registration ever claims is swept, with its object, by
+ *    `jobs/pendingUploadCleanup.ts`.
+ *
+ * Returns the row's id, not the key. The caller never learns where the file
+ * went, so a guessed or stolen id is worth nothing beyond a single claim, and
+ * `register()` is the only thing that can turn one into a stored document.
+ */
+export const storeIdentityDocument = async (input: {
+  fileName: string;
+  contentType: string;
+  body: Buffer;
+}): Promise<{ documentId: string }> => {
+  const contentType = input.contentType.split(";")[0].trim().toLowerCase();
+  if (!(IDENTITY_DOCUMENT_MIME_TYPES as readonly string[]).includes(contentType)) {
+    throw BadRequest("Upload a JPG, PNG, WEBP or PDF of your document.");
+  }
+  if (input.body.length === 0) throw BadRequest("That file is empty.");
+  if (input.body.length > UPLOAD_MAX_BYTES.identity) {
+    throw BadRequest(
+      `That file is too large — the limit is ${Math.round(UPLOAD_MAX_BYTES.identity / (1024 * 1024))} MB.`,
+    );
+  }
+
+  // The row is created first so a stored object always has something pointing
+  // at it: an insert that fails after a successful upload would leave a file
+  // the cleanup job cannot see.
+  const pending = await prisma.pendingIdentityDocument.create({
+    data: {
+      // Replaced below with the real key. A placeholder rather than a nullable
+      // column, so the unique index still guards the claim.
+      objectKey: `pending:${crypto.randomUUID()}`,
+      contentType,
+      sizeBytes: input.body.length,
+      fileName: input.fileName.slice(0, 200),
+    },
+  });
+
+  try {
+    const stored = await getStorage().upload({
+      fileName: input.fileName,
+      contentType,
+      scope: "identity",
+      // No account exists yet, so the key's owner segment is this upload's own
+      // id. `uploads.service.ts` resolves the real owner through `Profile`.
+      ownerId: pending.id,
+      body: input.body,
+    });
+    await prisma.pendingIdentityDocument.update({
+      where: { id: pending.id },
+      data: { objectKey: stored.key },
+    });
+  } catch (err) {
+    await prisma.pendingIdentityDocument
+      .delete({ where: { id: pending.id } })
+      .catch(() => undefined);
+    logger.error({ err }, "[auth] failed to store a sign-up identity document");
+    throw ServiceUnavailable("We couldn't store that document. Please try again.");
+  }
+
+  return { documentId: pending.id };
+};
+
+/**
+ * Exchange an upload id for the key to write onto the new profile.
+ *
+ * Single-use by construction: the conditional `updateMany` on `claimedAt` is
+ * the claim, so two registrations racing for one document — or one id replayed
+ * — leave exactly one winner. Expiry is checked here too, so a document the
+ * cleanup job has not reached yet still cannot be claimed after its window.
+ */
+const claimIdentityDocument = async (documentId: string): Promise<string> => {
+  const cutoff = new Date(Date.now() - PENDING_UPLOAD_RETENTION_HOURS * 60 * 60 * 1000);
+  const claimed = await prisma.pendingIdentityDocument.updateMany({
+    where: { id: documentId, claimedAt: null, createdAt: { gte: cutoff } },
+    data: { claimedAt: new Date() },
+  });
+  if (claimed.count !== 1) {
+    throw BadRequest(
+      "That document upload has expired or was already used. Please upload it again.",
+    );
+  }
+  const row = await prisma.pendingIdentityDocument.findUnique({ where: { id: documentId } });
+  if (!row) throw BadRequest("That document upload could not be found. Please upload it again.");
+  return row.objectKey;
+};
+
 export const sendRegistrationOtp = async (email: string): Promise<{ devCode?: string }> => {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw Conflict("Email already registered");
@@ -150,6 +255,14 @@ export const register = async (input: RegisterInput) => {
 
   await consumeRegistrationOtp(input.email, input.otp);
 
+  /*
+   * Claimed after the OTP, before the account. If the create below fails the
+   * document stays claimed and effectively orphaned — which is the right way
+   * round: re-registering asks for a fresh upload, whereas an unclaimed id that
+   * survived a failure could be replayed onto a different account.
+   */
+  const identityDocumentKey = await claimIdentityDocument(input.identityDocumentId);
+
   // Hardcoded, never taken from the request. The only paths to ADMIN are an
   // existing admin granting it and `seed-admin.ts` bootstrapping the first one.
   const role: AppRoleName = "ALUMNI";
@@ -190,6 +303,8 @@ export const register = async (input: RegisterInput) => {
             bio: input.bio || undefined,
             currentCompany: input.currentCompany,
             currentRole: input.currentRole,
+            // What the reviewing admin actually checks the application against.
+            identityDocumentKey,
           },
         },
         preferences: { create: {} },
@@ -257,9 +372,13 @@ export const logout = async (refreshToken: string) => {
 };
 
 /**
- * Fill in the mandatory profile for an account that couldn't supply it at
- * creation time — i.e. an SSO sign-in, where the provider gives us a name and
- * an email and nothing more.
+ * Fill in the mandatory profile for an account that doesn't have one.
+ *
+ * `registerSchema` collects every required field, so a signup made through the
+ * form is complete the moment it exists. This is the safety net for the ones
+ * that aren't: accounts created before that was true, and any the office
+ * imports. `ProtectedRoute` funnels them here rather than into a portal whose
+ * every screen would be missing its data.
  *
  * The account stays PENDING: completing the profile is what makes it
  * *reviewable*, not approved. An admin still decides.
@@ -291,8 +410,8 @@ export const completeProfile = async (userId: string, input: CompleteProfileInpu
     bio: input.bio || undefined,
   };
 
-  // `upsert` because an OAuth account is created with an empty profile row,
-  // but a profile could also be missing entirely on older accounts.
+  // `upsert` because the profile row may be empty, or missing entirely on an
+  // older account.
   const profile = await prisma.profile.upsert({
     where: { userId },
     create: { userId, ...profileData },
@@ -319,7 +438,7 @@ export const me = async (userId: string) => {
  */
 export const forgotPassword = async (email: string): Promise<void> => {
   const user = await prisma.user.findUnique({ where: { email } });
-  // Silently succeed for unknown or OAuth-only accounts.
+  // Silently succeed for unknown accounts, and for any without a password.
   if (!user || !user.passwordHash) return;
 
   // Invalidate any outstanding tokens for this user, then mint a fresh one.
@@ -377,81 +496,13 @@ export const changePassword = async (
   const ok = await verifyPassword(currentPassword, user.passwordHash);
   if (!ok) throw BadRequest("Your current password is incorrect.");
   const passwordHash = await hashPassword(newPassword);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
-};
-
-/**
- * Find-or-create a user from a normalized OAuth profile, then issue our own JWTs.
- * - If the OAuthAccount exists → log that user in.
- * - Else if a user with the same email exists → link the OAuth account to them.
- * - Else → create a new ALUMNI user (auto-approved since email is provider-verified).
- */
-export const loginWithOAuth = async (profile: OAuthProfile) => {
-  // Providers return whatever case the user typed when they signed up with
-  // them. Canonicalise before any lookup or insert, otherwise "Alice@x.com"
-  // from GitHub would create a second account alongside the "alice@x.com"
-  // registered through the form.
-  const email = profile.email.trim().toLowerCase();
-
-  // 1. Already-linked account?
-  const existingLink = await prisma.oAuthAccount.findUnique({
-    where: { provider_providerId: { provider: profile.provider, providerId: profile.providerId } },
-    include: { user: { include: { roles: true, profile: true } } },
-  });
-
-  let user = existingLink?.user;
-
-  // 2. Same email but no link yet → attach.
-  if (!user) {
-    const byEmail = await prisma.user.findUnique({
-      where: { email },
-      include: { roles: true, profile: true },
-    });
-    if (byEmail) {
-      await prisma.oAuthAccount.create({
-        data: {
-          userId: byEmail.id,
-          provider: profile.provider,
-          providerId: profile.providerId,
-        },
-      });
-      user = byEmail;
-    }
-  }
-
-  // 3. Brand-new user.
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        email,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        /**
-         * ALWAYS pending. A provider-verified email proves the person owns the
-         * address — it says nothing about whether they are an ADCET alumnus,
-         * which is what approval is actually for. Auto-approving here used to
-         * hand anyone with a Google account full portal access while skipping
-         * both the mandatory profile and admin review.
-         */
-        status: "PENDING",
-        emailVerifiedAt: profile.emailVerified ? new Date() : null,
-        roles: { create: { role: "ALUMNI" } },
-        // Empty for now — the provider gives us no academic or contact detail.
-        // `/complete-profile` collects the same fields form sign-up requires.
-        profile: { create: {} },
-        preferences: { create: {} },
-        oauthAccounts: {
-          create: { provider: profile.provider, providerId: profile.providerId },
-        },
-      },
-      include: { roles: true, profile: true },
-    });
-  }
-
-  const roles = user.roles.map((r) => r.role as AppRoleName);
-  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  const tokens = await issueTokens(user, roles);
-  return { user: publicUser(user, roles), ...tokens };
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
 };
 
 const publicUser = (
@@ -474,9 +525,9 @@ const publicUser = (
   rejectionReason: u.rejectionReason ?? null,
   roles,
   /**
-   * Whether the mandatory profile is filled in. SSO accounts start `false`;
-   * the frontend uses this to force them through `/complete-profile` before
-   * anything else. Callers that didn't load the profile relation get `false`
+   * Whether the mandatory profile is filled in. The frontend uses this to
+   * force an incomplete account through `/complete-profile` before anything
+   * else. Callers that didn't load the profile relation get `false`
    * — never silently `true`, so a missing `include` can't open the gate.
    */
   profileComplete: isProfileComplete(u.profile as Parameters<typeof isProfileComplete>[0]),

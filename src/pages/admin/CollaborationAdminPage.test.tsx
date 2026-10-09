@@ -41,7 +41,6 @@ vi.mock("@/lib/api", () => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
-  apiUrl: (p: string) => p,
   tokenStore: { get: () => null, set: vi.fn(), clear: vi.fn() },
 }));
 

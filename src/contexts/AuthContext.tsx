@@ -31,8 +31,6 @@ interface AuthState {
   login: (email: string, password: string) => Promise<AuthUser>;
   register: (input: RegisterInput) => Promise<AuthUser>;
   logout: () => Promise<void>;
-  /** Persist tokens captured from an external flow (e.g. OAuth fragment). */
-  setSession: (tokens: AuthTokens) => Promise<AuthUser>;
   refreshMe: () => Promise<AuthUser | null>;
 }
 
@@ -137,15 +135,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(null);
   }, []);
 
-  const setSession = useCallback(async (tokens: AuthTokens) => {
-    tokenStore.set(tokens);
-    // The /me call ensures we have a fresh, authoritative user payload.
-    const me = await api.get<AuthUser>("/auth/me");
-    tokenStore.set({ ...tokens, user: me });
-    setUser(me);
-    return me;
-  }, []);
-
   const refreshMe = useCallback(async () => {
     if (!tokenStore.get()) return null;
     const me = await api.get<AuthUser>("/auth/me");
@@ -164,10 +153,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       login,
       register,
       logout,
-      setSession,
       refreshMe,
     };
-  }, [user, loading, login, register, logout, setSession, refreshMe]);
+  }, [user, loading, login, register, logout, refreshMe]);
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 };

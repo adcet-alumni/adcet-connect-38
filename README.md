@@ -45,12 +45,17 @@
 
 ---
 
+Deployment sizing, the load-testing plan and backup/restore live in
+[DEPLOY.md](DEPLOY.md).
+
 ## Features
 
-- **Authentication & RBAC** — JWT access + refresh tokens, two roles
-  (`ADMIN`, `ALUMNI`), stored in a separate table to prevent privilege
-  escalation. Multi-step registration with LinkedIn (required), GitHub,
-  Twitter/X, and website URLs.
+- **Authentication & RBAC** — email + password only (there is no social
+  sign-in), JWT access + refresh tokens, two roles (`ADMIN`, `ALUMNI`), stored
+  in a separate table to prevent privilege escalation. Multi-step registration
+  collecting a full profile plus **proof of study** — a library card, marksheet,
+  leaving certificate or degree certificate, shown to the admin reviewing the
+  account. LinkedIn, GitHub, Twitter/X and website URLs are all optional.
 - **Alumni Directory** with filters (department, year, company, city).
 - **5 Themes** — Default, Ocean, Sunset, Forest, Royal — with dark mode toggle.
   Persisted per-user in the database.
@@ -62,8 +67,21 @@
 - **Jobs Board** — any user can post (admin approves), department-targeted email
   notifications on approval, file attachments, rich application flow with resume
   upload and cover letter, email to poster with applicant info + resume attachment.
+  A posting is shown for 30 days and deleted at 45 (the poster keeps access to
+  its applications in between); an admin can extend one with `expiresAt`.
+- **Retention** — expired jobs and events more than six months past are deleted
+  by a nightly worker job, along with their attachments and résumés. Each purge
+  first archives the row's reporting dimensions, so the dashboard's totals,
+  monthly trends and CSV exports keep counting content the platform no longer
+  stores.
 - **Achievements** — submission + moderation pipeline.
-- **Donations** — campaigns, pledges, status tracking, proof upload, ledger.
+- **Donations** — no payment gateway: the alumni office publishes a UPI QR,
+  bank account and instructions from Admin → Settings; a donor pays there and
+  submits the transaction reference (with an optional screenshot); an admin
+  cross-checks it against the bank statement and verifies or rejects it.
+  Verifying generates and emails the PDF receipt; rejecting emails the reason
+  and archives the record, which is deleted 30 days later. Campaigns, a
+  per-campaign ledger and a public honour roll sit on top.
 - **Geo Insights** — alumni distribution by city × company.
 - **Admin Suite** — user approvals with pagination, select-all, bulk approve/reject,
   event/job/achievement moderation, analytics, reports (CSV/JSON), audit log.

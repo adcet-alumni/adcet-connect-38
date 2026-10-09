@@ -35,12 +35,18 @@ describe("/analytics", () => {
       _sum: { amount: 12000 },
       _count: 7,
     } as any);
+    // Jobs and events retention has deleted still count towards the totals.
+    prisma.archivedContent.groupBy.mockResolvedValueOnce([
+      { kind: "JOB", _count: { _all: 12 } },
+    ] as any);
     const res = await request(app)
       .get("/api/v1/analytics/overview")
       .set("Authorization", bearer(userToken));
     expect(res.status).toBe(200);
     expect(res.body.totalUsers).toBe(50);
     expect(res.body.totalDonationsAmount).toBe(12000);
+    expect(res.body.totalJobs).toBe(8 + 12);
+    expect(res.body.totalEvents).toBe(5);
   });
 
   it("200 alumniByYear sorts ascending", async () => {
@@ -108,6 +114,7 @@ describe("/analytics/admin/insights", () => {
     prisma.$queryRaw.mockResolvedValue([] as any);
     prisma.profile.count.mockResolvedValue(0 as any);
     prisma.eventRsvp.count.mockResolvedValue(0 as any);
+    prisma.archivedContent.aggregate.mockResolvedValue({ _sum: { rsvpCount: 0 } } as any);
     prisma.profile.groupBy.mockResolvedValue([] as any);
   });
 

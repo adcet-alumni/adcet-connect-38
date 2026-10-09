@@ -2,7 +2,7 @@
   "name": "adcet-alumni-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "ADCET Alumni Portal \u2014 Express + Prisma + MinIO backend",
+  "description": "ADCET Alumni Portal — Express + Prisma + MinIO backend",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.665.0",
+    "@aws-sdk/client-ses": "^3.1147.0",
     "@aws-sdk/s3-request-presigner": "^3.665.0",
     "@prisma/client": "^5.20.0",
     "bcryptjs": "^2.4.3",

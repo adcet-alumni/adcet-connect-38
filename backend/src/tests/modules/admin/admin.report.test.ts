@@ -47,6 +47,7 @@ describe("admin.service — generateReport", () => {
 
   it("CSV: empty rows return empty string", async () => {
     prismaMock.event.findMany.mockResolvedValueOnce([]);
+    prismaMock.archivedContent.findMany.mockResolvedValueOnce([]);
     expect(await svc.generateReport({ type: "events", format: "csv" })).toEqual({ csv: "" });
   });
 
@@ -135,10 +136,88 @@ describe("admin.service — generateReport", () => {
 
   it("status + department filters are forwarded (jobs)", async () => {
     prismaMock.job.findMany.mockResolvedValueOnce([]);
+    prismaMock.archivedContent.findMany.mockResolvedValueOnce([]);
     await svc.generateReport({ type: "jobs", format: "json", status: "APPROVED", department: "Computer Science and Engineering" });
     const where = (prismaMock.job.findMany.mock.calls[0][0] as any).where;
     expect(where.status).toBe("APPROVED");
     expect(where.departments).toEqual({ has: "Computer Science and Engineering" });
+  });
+
+  /**
+   * The same filters have to reach the archive, or a department report would
+   * quietly widen to every department as soon as retention started purging.
+   */
+  it("forwards the same filters to the archived rows", async () => {
+    prismaMock.job.findMany.mockResolvedValueOnce([]);
+    prismaMock.archivedContent.findMany.mockResolvedValueOnce([]);
+    await svc.generateReport({
+      type: "jobs",
+      format: "json",
+      status: "APPROVED",
+      department: "Computer Science and Engineering",
+    });
+    const where = (prismaMock.archivedContent.findMany.mock.calls[0][0] as any).where;
+    expect(where).toMatchObject({
+      kind: "JOB",
+      status: "APPROVED",
+      departments: { has: "Computer Science and Engineering" },
+    });
+  });
+
+  /**
+   * A report that read only the live tables would show *less* activity the
+   * longer the platform ran — postings age out of it every night. The archived
+   * rows carry the counts that were frozen when the content was deleted.
+   */
+  it("includes retention-archived postings, flagged and counted", async () => {
+    prismaMock.job.findMany.mockResolvedValueOnce([
+      {
+        title: "Live one",
+        company: "Acme",
+        status: "APPROVED",
+        departments: [],
+        location: "Pune",
+        employmentType: "FULL_TIME",
+        vacancies: 1,
+        isClosed: false,
+        createdAt: new Date("2026-09-01"),
+        createdBy: { firstName: "A", lastName: "B" },
+        _count: { applications: 2 },
+      },
+    ]);
+    prismaMock.archivedContent.findMany.mockResolvedValueOnce([
+      {
+        title: "Purged one",
+        company: "TCS",
+        status: "APPROVED",
+        departments: ["Computer Science and Engineering"],
+        location: "Mumbai",
+        employmentType: "FULL_TIME",
+        vacancies: 4,
+        isClosed: true,
+        applicationCount: 17,
+        authorName: "Old Poster",
+        createdAt: new Date("2026-01-15"),
+      },
+    ]);
+
+    const out = (await svc.generateReport({ type: "jobs", format: "json" })) as any;
+
+    expect(out.rows).toHaveLength(2);
+    // Newest first, across both sources.
+    expect(out.rows[0]).toMatchObject({ Title: "Live one", Archived: "No" });
+    expect(out.rows[1]).toMatchObject({
+      Title: "Purged one",
+      Applications: 17,
+      "Posted By": "Old Poster",
+      Archived: "Yes",
+    });
+    expect(out.summary).toMatchObject({
+      Total: 2,
+      Approved: 2,
+      "Total Applications": 19,
+      "Archived (content deleted)": 1,
+    });
   });
 
   it("unknown type falls through to empty rows", async () => {

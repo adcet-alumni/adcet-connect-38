@@ -55,17 +55,18 @@ export const buildApp = () => {
       referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     }),
   );
+
+  // Permissions Policy: restrict browser features the portal does not use.
+  app.use((_req, res, next) => {
+    res.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+    );
+    next();
+  });
+
   app.use(cors({ origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(","), credentials: true }));
-  // Capture the raw request body so webhook handlers (e.g. Razorpay) can verify
-  // HMAC signatures over the exact bytes received.
-  app.use(
-    express.json({
-      limit: "1mb",
-      verify: (req, _res, buf) => {
-        (req as unknown as { rawBody?: Buffer }).rawBody = buf;
-      },
-    }),
-  );
+  app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
   if (env.NODE_ENV !== "test") app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
   app.use(globalLimiter);

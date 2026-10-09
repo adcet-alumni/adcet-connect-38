@@ -72,6 +72,7 @@ describe("department is enforced on every write path", () => {
     currentCompany: "Infosys",
     currentRole: "SDE-2",
     linkedinUrl: "https://linkedin.com/in/a",
+    identityDocumentId: "11111111-2222-4333-8444-555555555555",
   };
 
   it("sign-up rejects a legacy department and accepts an official one", () => {
