@@ -37,9 +37,15 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    allowedHosts: ["alumni.adcet.ac.in", ".adcet.ac.in", "alumni.adcet.in", ".adcet.in"],
     hmr: {
       overlay: false,
     },
+  },
+  preview: {
+    host: "::",
+    port: 8080,
+    allowedHosts: ["alumni.adcet.ac.in", ".adcet.ac.in", "alumni.adcet.in", ".adcet.in"],
   },
   plugins: [react(), cspPlugin(loadEnv(mode, __dirname, "VITE_")), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

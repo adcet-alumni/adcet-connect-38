@@ -5,7 +5,7 @@
 
 import { formatDay } from "./dates.js";
 
-const PORTAL_URL = process.env.CORS_ORIGIN || "http://localhost:8080";
+const PORTAL_URL = (process.env.CORS_ORIGIN || "http://localhost:8080").split(",")[0].trim();
 
 /** Escape HTML special characters to prevent XSS in email templates. */
 const esc = (s: string | null | undefined): string => {
@@ -93,7 +93,7 @@ export const passwordResetEmail = (
   ttlMinutes: number,
 ): { subject: string; text: string; html: string } => {
   const body = `
-    <h2>🔒 Reset your password</h2>
+    <h2>Reset your password</h2>
     <p>Hi ${esc(firstName)},</p>
     <p>We received a request to reset the password for your ADCET Alumni Portal account.
        Click the button below to choose a new password. This link expires in
@@ -115,7 +115,7 @@ export const passwordResetEmail = (
     `Use the link below to reset your ADCET Alumni Portal password (expires in ${ttlMinutes} minutes):\n` +
     `${resetUrl}\n\n` +
     `If you didn't request this, ignore this email.\n`;
-  return { subject: "🔒 Reset your ADCET Alumni Portal password", text, html: wrap("Reset your password", body) };
+  return { subject: "Reset your ADCET Alumni Portal password", text, html: wrap("Reset your password", body) };
 };
 
 /** Sign-up email verification code (OTP). */
@@ -124,7 +124,7 @@ export const emailVerificationOtpEmail = (
   ttlMinutes: number,
 ): { subject: string; text: string; html: string } => {
   const body = `
-    <h2>✉️ Verify your email address</h2>
+    <h2>Verify your email address</h2>
     <p>Welcome to the ADCET Alumni Portal! Use the code below to verify your
        email address and finish creating your account. It expires in
        <strong>${ttlMinutes} minutes</strong>.</p>
@@ -140,7 +140,7 @@ export const emailVerificationOtpEmail = (
     `Your ADCET Alumni Portal verification code is: ${code}\n` +
     `It expires in ${ttlMinutes} minutes.\n\n` +
     `If you didn't try to sign up, ignore this email.\n`;
-  return { subject: "✉️ Your ADCET Alumni Portal verification code", text, html: wrap("Verify your email", body) };
+  return { subject: "Your ADCET Alumni Portal verification code", text, html: wrap("Verify your email", body) };
 };
 
 // ── Event notification email ────────────────────────────────────────────
@@ -183,7 +183,7 @@ export const eventNotificationEmail = (
     .join("\n              ");
 
   const body = `
-    <h2>📅 New Event: ${esc(event.title)}</h2>
+    <h2>New Event: ${esc(event.title)}</h2>
     <p>Hi ${esc(recipientName)},</p>
     <p>A new event has been created on the ADCET Alumni Portal that may interest you!</p>
 
@@ -227,7 +227,7 @@ export const eventNotificationEmail = (
 
     <p>${esc(event.description.slice(0, 300))}${event.description.length > 300 ? "..." : ""}</p>
 
-    ${event.attachmentKey ? `<p>📎 <strong>An attachment is included with this event.</strong> View or download it from the event page on the portal.</p>` : ""}
+    ${event.attachmentKey ? `<p><strong>An attachment is included with this event.</strong> View or download it from the event page on the portal.</p>` : ""}
 
     <div class="rsvp-section">
       <p>Would you like to attend this event?</p>
@@ -253,7 +253,7 @@ export const eventNotificationEmail = (
     `View event: ${eventUrl}\n`;
 
   return {
-    subject: `📅 New Event: ${event.title} — ADCET Alumni`,
+    subject: `New Event: ${event.title} — ADCET Alumni`,
     text,
     html: wrap(`New Event: ${event.title}`, body),
   };
@@ -281,7 +281,7 @@ export const jobApplicationEmail = (
   const jobUrl = `${PORTAL_URL}/dashboard/jobs/${data.jobId}`;
 
   const body = `
-    <h2>💼 New Application for "${esc(data.jobTitle)}"</h2>
+    <h2>New Application for "${esc(data.jobTitle)}"</h2>
     <p>You have received a new application for your job posting at <strong>${esc(data.company)}</strong>.</p>
 
     <div style="margin: 20px 0;">
@@ -363,7 +363,7 @@ export const eventReminderEmail = (
   }).format(event.startsAt);
 
   const body = `
-    <h2>⏰ Reminder: ${esc(event.title)} is Tomorrow!</h2>
+    <h2>Reminder: ${esc(event.title)} is Tomorrow!</h2>
     <p>Hi ${esc(recipientName)},</p>
     <p>This is a friendly reminder that <strong>${esc(event.title)}</strong> is happening <strong>tomorrow</strong>!</p>
 
@@ -395,7 +395,7 @@ export const eventReminderEmail = (
   `;
 
   return {
-    subject: `⏰ Reminder: ${event.title} is Tomorrow! — ADCET Alumni`,
+    subject: `Reminder: ${event.title} is Tomorrow! — ADCET Alumni`,
     text: `Reminder: ${event.title} is tomorrow!\n\nDate: ${dateStr}\n${event.location ? `Location: ${event.location}\n` : ""}\nView: ${eventUrl}`,
     html: wrap(`Reminder: ${event.title}`, body),
   };
@@ -439,7 +439,7 @@ export const eventNonResponderReminderEmail = (
   `;
 
   return {
-    subject: `📅 Last Chance to RSVP: ${event.title} — ADCET Alumni`,
+    subject: `Last Chance to RSVP: ${event.title} — ADCET Alumni`,
     text: `Don't miss ${event.title} tomorrow!\n\nDate: ${dateStr}\n\nRSVP: ${eventUrl}`,
     html: wrap(`Don't Miss: ${event.title}`, body),
   };
@@ -460,7 +460,7 @@ export const eventRsvpSummaryEmail = (
   }).format(event.startsAt);
 
   const body = `
-    <h2>📊 RSVP Update: ${esc(event.title)}</h2>
+    <h2>RSVP Update: ${esc(event.title)}</h2>
     <p>Hi ${esc(recipientName)},</p>
     <p>Here's the latest RSVP status for <strong>${esc(event.title)}</strong> happening tomorrow (${dateStr}):</p>
 
@@ -489,7 +489,7 @@ export const eventRsvpSummaryEmail = (
   `;
 
   return {
-    subject: `📊 RSVP Update: ${event.title} — ADCET Alumni`,
+    subject: `RSVP Update: ${event.title} — ADCET Alumni`,
     text: `RSVP Update for ${event.title}\n\nGoing: ${counts.going}\nInterested: ${counts.interested}\nNot Going: ${counts.notGoing}\n\nView: ${eventUrl}`,
     html: wrap(`RSVP Update: ${event.title}`, body),
   };
@@ -532,7 +532,7 @@ export const jobNotificationEmail = (
     : null;
 
   const body = `
-    <h2>💼 New Job Opportunity: ${esc(job.title)}</h2>
+    <h2>New Job Opportunity: ${esc(job.title)}</h2>
     <p>Hi ${esc(recipientName)},</p>
     <p>A new job has been posted on the ADCET Alumni Portal that might interest you!</p>
 
@@ -590,7 +590,7 @@ export const jobNotificationEmail = (
     `View & Apply: ${jobUrl}\n`;
 
   return {
-    subject: `💼 New Job: ${job.title} at ${job.company} — ADCET Alumni`,
+    subject: `New Job: ${job.title} at ${job.company} — ADCET Alumni`,
     text,
     html: wrap(`New Job: ${job.title}`, body),
   };
@@ -649,7 +649,7 @@ export const achievementApprovedEmail = (
 ): { subject: string; text: string; html: string } => {
   const url = `${PORTAL_URL}/achievements/${a.id}`;
   const body = `
-    <h2>🏆 Your achievement has been approved!</h2>
+    <h2>Your achievement has been approved!</h2>
     <p>Hi ${esc(authorName)},</p>
     <p>Great news — your achievement <strong>"${esc(a.title)}"</strong> has been reviewed and is now published on the ADCET Alumni Portal for the community to see.</p>
     ${achievementDetails(a)}
@@ -673,7 +673,7 @@ export const achievementAnnouncementEmail = (
 ): { subject: string; text: string; html: string } => {
   const url = `${PORTAL_URL}/achievements/${a.id}`;
   const body = `
-    <h2>🏆 New alumni achievement published</h2>
+    <h2>New alumni achievement published</h2>
     <p>A new achievement by <strong>${esc(authorName)}</strong> has been approved and published on the ADCET Alumni Portal. Sharing it with you for visibility and possible feature in college communications.</p>
     ${achievementDetails(a)}
   `;
@@ -686,7 +686,7 @@ export const achievementAnnouncementEmail = (
     `\n${a.description.slice(0, 500)}\n\n` +
     `View it: ${url}\n`;
   return {
-    subject: `🏆 Alumni Achievement: "${a.title}" by ${authorName}`,
+    subject: `Alumni Achievement: "${a.title}" by ${authorName}`,
     text,
     html: wrap("New Alumni Achievement", body),
   };
@@ -913,7 +913,7 @@ export const chapterInvitationEmail = (
   recipientName: string,
 ): { subject: string; text: string; html: string } => {
   const body = `
-    <h2>🏙 You're invited to the ${esc(d.chapterName)}</h2>
+    <h2>You're invited to the ${esc(d.chapterName)}</h2>
     <p>Hi ${esc(recipientName)},</p>
     <p>
       <strong>${esc(d.invitedByName)}</strong> has invited you to join the
@@ -970,7 +970,7 @@ export const chapterInvitationEmail = (
     `Chapters page in the portal.\n`;
 
   return {
-    subject: `🏙 Invitation to join the ${d.chapterName} — ADCET Alumni`,
+    subject: `Invitation to join the ${d.chapterName} — ADCET Alumni`,
     text,
     html: wrap("Chapter Invitation", body),
   };
