@@ -144,7 +144,6 @@ class SesTransport implements MailTransport {
           })),
         };
 
-        // @ts-expect-error MailComposer is not exported with explicit types
         const mailComposer = new MailComposer(mailOptions);
         const messageBuffer = await mailComposer.compile().build();
 

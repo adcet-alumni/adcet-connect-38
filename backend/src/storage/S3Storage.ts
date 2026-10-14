@@ -57,10 +57,23 @@ export class S3Storage implements StorageService {
 
   /**
    * Scopes whose objects must never be publicly readable. Downloads go
-   * through presigned URLs; the bucket policy below excludes their key
-   * prefixes from the public `s3:GetObject` statement.
+   * through presigned URLs only. Kept for documentation purposes.
    */
-  private static PRIVATE_PREFIXES = ["resume", "receipt", "donation-proof", "identity", "backup"];
+  // private static PRIVATE_PREFIXES = ["resume", "receipt", "donation-proof", "identity", "backup"];
+
+  /**
+   * Scopes that are publicly readable without authentication. The bucket
+   * policy grants anonymous `s3:GetObject` only for these prefixes.
+   * Private scopes (resume, receipt, donation-proof, identity, backup) are
+   * implicitly denied because there is no Allow for them. Presigned URLs
+   * carry their own signed credentials so they work for private scopes too.
+   */
+  private static PUBLIC_PREFIXES = [
+    "avatar", "banner", "event", "achievement",
+    "event-attachment", "job-attachment", "email-attachment",
+    "post", "newsletter", "newsletter-cover",
+    "gallery", "collaboration", "donation-qr",
+  ];
 
   /**
    * Dev-MinIO convenience: create the bucket if it doesn't exist. For
@@ -68,10 +81,11 @@ export class S3Storage implements StorageService {
    * policy — this path only fires when `ensureBucket` is true (i.e.
    * STORAGE_DRIVER=minio).
    *
-   * The policy grants public read on every key *except* the private
-   * scopes (resume, receipt, donation-proof, identity, backup), which
-   * are only reachable through the pre-signed download URLs the API
-   * issues after an authorisation check.
+   * The policy grants public read only on the public scopes. Private
+   * scopes (resume, receipt, donation-proof, identity, backup) have no
+   * Allow, so they are implicitly denied for anonymous access.
+   * Presigned URLs are still usable for private scopes because they carry
+   * signed credentials of their own.
    */
   private async ensureBucket(): Promise<void> {
     try {
@@ -90,31 +104,13 @@ export class S3Storage implements StorageService {
             Version: "2012-10-17",
             Statement: [
               {
-                Sid: "PublicReadNonPrivateScopes",
+                Sid: "PublicReadPublicScopes",
                 Effect: "Allow",
                 Principal: "*",
                 Action: ["s3:GetObject"],
-                Resource: [`arn:aws:s3:::${this.bucket}/*`],
-                Condition: {
-                  StringNotLike: {
-                    "s3:prefix": S3Storage.PRIVATE_PREFIXES.map((p) => `${p}/*`),
-                  },
-                },
-              },
-              // Explicit deny on private prefixes so no other statement can override.
-              {
-                Sid: "DenyPublicReadPrivateScopes",
-                Effect: "Deny",
-                Principal: "*",
-                Action: ["s3:GetObject"],
-                Resource: S3Storage.PRIVATE_PREFIXES.map(
+                Resource: S3Storage.PUBLIC_PREFIXES.map(
                   (p) => `arn:aws:s3:::${this.bucket}/${p}/*`,
                 ),
-                Condition: {
-                  StringNotLike: {
-                    "aws:Referer": ["presigned-url-request"],
-                  },
-                },
               },
             ],
           }),

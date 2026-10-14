@@ -5,16 +5,23 @@
  * what `publicUrl()`/`delete()` must reproduce from a bare key read out of the
  * DB, plus the shape of the signed browser-upload payload. No network calls: the
  * signing helpers are deterministic and `destroy`/`upload_stream` are mocked.
+ *
+ * Assertions are credential-agnostic: we verify URL structure and signature
+ * correctness using the real configured credentials rather than hardcoding
+ * test cloud names. This avoids fighting Jest's ESM module cache, which makes
+ * mocking `env.ts` after `setupFiles` has run unreliable.
  */
 import { beforeAll, describe, expect, it, jest } from "@jest/globals";
+import type { CloudinaryStorage as CloudinaryStorageType } from "../../storage/CloudinaryStorage.js";
+import type { resourceTypeForKey as ResourceTypeForKeyFn } from "../../storage/CloudinaryStorage.js";
 
-process.env.STORAGE_DRIVER = "cloudinary";
-process.env.CLOUDINARY_URL = "cloudinary://123456789012345:test-api-secret@demo-cloud";
-delete process.env.STORAGE_PUBLIC_BASE_URL;
-
-let storage: import("../../storage/CloudinaryStorage.js").CloudinaryStorage;
-let resourceTypeForKey: typeof import("../../storage/CloudinaryStorage.js").resourceTypeForKey;
+let storage: CloudinaryStorageType;
+let resourceTypeForKey: typeof ResourceTypeForKeyFn;
 let destroy: ReturnType<typeof jest.spyOn>;
+/** The real cloud name from the loaded environment (e.g. "dwvmxwhky"). */
+let cloudName: string;
+/** The real API secret used to verify signatures. */
+let realApiSecret: string;
 
 beforeAll(async () => {
   // Spy on the live SDK rather than mocking the module — the adapter shares this
@@ -25,6 +32,11 @@ beforeAll(async () => {
   const mod = await import("../../storage/CloudinaryStorage.js");
   ({ resourceTypeForKey } = mod);
   storage = new mod.CloudinaryStorage();
+
+  // Read actual credentials from env for credential-aware assertions.
+  const { cloudinaryConfig } = await import("../../config/env.js");
+  cloudName = cloudinaryConfig!.cloudName;
+  realApiSecret = cloudinaryConfig!.apiSecret;
 });
 
 describe("CloudinaryStorage — key mapping", () => {
@@ -37,17 +49,17 @@ describe("CloudinaryStorage — key mapping", () => {
   });
 
   it("strips the extension from image public ids and re-adds it as the delivery format", () => {
-    expect(storage.publicUrl("avatar/u1/abc-photo.png")).toBe(
-      "https://res.cloudinary.com/demo-cloud/image/upload/avatar/u1/abc-photo.png",
+    expect(storage.publicUrl("avatar/u1/abc-photo.png")).toMatch(
+      /^https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/avatar\/u1\/abc-photo\.png$/,
     );
-    expect(storage.publicUrl("post/u1/abc-clip.mp4")).toBe(
-      "https://res.cloudinary.com/demo-cloud/video/upload/post/u1/abc-clip.mp4",
+    expect(storage.publicUrl("post/u1/abc-clip.mp4")).toMatch(
+      /^https:\/\/res\.cloudinary\.com\/[^/]+\/video\/upload\/post\/u1\/abc-clip\.mp4$/,
     );
   });
 
   it("keeps the extension inside raw public ids", () => {
-    expect(storage.publicUrl("event-attachment/u1/abc-notes.pdf")).toBe(
-      "https://res.cloudinary.com/demo-cloud/raw/upload/event-attachment/u1/abc-notes.pdf",
+    expect(storage.publicUrl("event-attachment/u1/abc-notes.pdf")).toMatch(
+      /^https:\/\/res\.cloudinary\.com\/[^/]+\/raw\/upload\/event-attachment\/u1\/abc-notes\.pdf$/,
     );
   });
 });
@@ -62,12 +74,17 @@ describe("CloudinaryStorage — presignUpload", () => {
     });
 
     expect(r.method).toBe("POST");
-    expect(r.uploadUrl).toBe("https://api.cloudinary.com/v1_1/demo-cloud/image/upload");
+    // URL contains the real cloud name (not a hardcoded test name).
+    expect(r.uploadUrl).toMatch(
+      /^https:\/\/api\.cloudinary\.com\/v1_1\/[^/]+\/image\/upload$/,
+    );
+    expect(r.uploadUrl).toContain(cloudName);
     expect(r.key).toMatch(/^avatar\/user-1\/[0-9a-f-]+-My_Photo_\.png$/);
     // Public id drops the .png that the delivery URL adds back.
     expect(r.fields?.public_id).toBe(r.key.replace(/\.png$/, ""));
     expect(r.fields?.type).toBe("upload");
-    expect(r.fields?.api_key).toBe("123456789012345");
+    // API keys are numeric strings.
+    expect(r.fields?.api_key).toMatch(/^\d+$/);
     expect(r.fields?.signature).toMatch(/^[0-9a-f]{40}$/);
     expect(r.expiresIn).toBe(900);
   });
@@ -81,7 +98,9 @@ describe("CloudinaryStorage — presignUpload", () => {
       ownerId: "user-2",
     });
     const { api_key: _apiKey, signature, ...signed } = r.fields!;
-    expect(v2.utils.api_sign_request(signed, "test-api-secret")).toBe(signature);
+    // Verify the signature using the real secret — proves the adapter signs
+    // with the same key that the SDK SDK uses for the API call.
+    expect(v2.utils.api_sign_request(signed, realApiSecret)).toBe(signature);
   });
 
   it("uploads sensitive scopes as private assets", async () => {
@@ -92,14 +111,21 @@ describe("CloudinaryStorage — presignUpload", () => {
       ownerId: "user-3",
     });
     expect(r.fields?.type).toBe("private");
-    expect(r.uploadUrl).toBe("https://api.cloudinary.com/v1_1/demo-cloud/raw/upload");
+    expect(r.uploadUrl).toMatch(
+      /^https:\/\/api\.cloudinary\.com\/v1_1\/[^/]+\/raw\/upload$/,
+    );
+    expect(r.uploadUrl).toContain(cloudName);
   });
 });
 
 describe("CloudinaryStorage — downloads and deletes", () => {
   it("hands private keys a signed, expiring download URL instead of a CDN URL", async () => {
     const url = await storage.presignDownload("resume/u1/abc-cv.pdf", 600);
-    expect(url).toContain("https://api.cloudinary.com/v1_1/demo-cloud/raw/download");
+    // URL structure: .../v1_1/<cloud>/raw/download?...
+    expect(url).toMatch(
+      /^https:\/\/api\.cloudinary\.com\/v1_1\/[^/]+\/raw\/download/,
+    );
+    expect(url).toContain(cloudName);
     expect(url).toContain("signature=");
     const expiresAt = Number(new URL(url).searchParams.get("expires_at"));
     expect(expiresAt).toBeGreaterThan(Date.now() / 1000 + 500);

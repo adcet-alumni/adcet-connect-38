@@ -169,6 +169,23 @@ describe("/uploads — key authorisation", () => {
         .send({ key: key("receipt", "victim-9", "receipt.pdf") });
       expect(res.status).toBe(200);
     });
+
+    it("200 for an admin reading an identity document (ownerId is upload-id, not user-id)", async () => {
+      const res = await request(app)
+        .post("/api/v1/uploads/presign-download")
+        .set("Authorization", bearer(adminToken))
+        .send({ key: key("identity", "some-upload-uuid-not-user-id", "marksheet.jpg") });
+      expect(res.status).toBe(200);
+    });
+
+    it("403 for a non-admin reading an identity document they don't own", async () => {
+      prisma.profile.findFirst.mockResolvedValueOnce(null as any);
+      const res = await request(app)
+        .post("/api/v1/uploads/presign-download")
+        .set("Authorization", bearer(token))
+        .send({ key: key("identity", "some-upload-uuid-not-user-id", "marksheet.jpg") });
+      expect(res.status).toBe(403);
+    });
   });
 
   describe("delete", () => {
