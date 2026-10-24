@@ -26,6 +26,8 @@ import { contentRouter } from "../modules/content/content.routes.js";
 import { galleryRouter } from "../modules/gallery/gallery.routes.js";
 import { feedRouter } from "../modules/feed/feed.routes.js";
 import { collaborationRouter } from "../modules/collaboration/collaboration.routes.js";
+import { boardRouter } from "../modules/board/board.routes.js";
+import { esteemedRouter } from "../modules/esteemed/esteemed.routes.js";
 
 export const apiRouter = Router();
 
@@ -101,6 +103,8 @@ apiRouter.use("/content", contentRouter);
 apiRouter.use("/gallery", galleryRouter);
 apiRouter.use("/feed", feedRouter);
 apiRouter.use("/collaboration", collaborationRouter);
+apiRouter.use("/board", boardRouter);
+apiRouter.use("/esteemed", esteemedRouter);
 
 // Assistant chatbot — placeholder until a real LLM/agent is wired up.
 apiRouter.post("/assistant/chat", (_req, res) =>

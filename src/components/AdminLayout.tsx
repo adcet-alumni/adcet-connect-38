@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, UserCheck, Calendar, Briefcase, Trophy, Heart, BarChart3,
   AlertTriangle, Settings, Menu, ChevronLeft, LogOut, X,
-  Search, User, Globe, FileText, MessageSquare, Newspaper, Flag, Building2, Images, Handshake
+  Search, User, Globe, FileText, MessageSquare, Newspaper, Flag, Building2, Images, Handshake, Users, Star
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -81,6 +81,8 @@ const AdminLayout = () => {
     { label: "Analytics", path: "/admin/analytics", icon: BarChart3, badge: undefined },
     { label: "Newsroom", path: "/admin/newsroom", icon: FileText, badge: undefined },
     { label: "Gallery", path: "/admin/gallery", icon: Images, badge: undefined },
+    { label: "Alumni Board", path: "/admin/board", icon: Users, badge: undefined },
+    { label: "Esteemed Alumni", path: "/admin/esteemed", icon: Star, badge: undefined },
     { label: "Support Inbox", path: "/admin/support", icon: MessageSquare, badge: undefined },
     { label: "Settings", path: "/admin/settings", icon: Settings, badge: undefined },
   ];

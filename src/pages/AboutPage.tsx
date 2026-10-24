@@ -1,11 +1,12 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Compass, Target } from "lucide-react";
+import { Compass, Loader2, Target } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import PublicLayout from "@/components/public/PublicLayout";
 import PageHero from "@/components/public/PageHero";
 import { ALUMNI_CELL, ALUMNI_NETWORK_MESSAGE } from "@/lib/public-content";
-import { BOARD_MEMBERS, initialsOf } from "@/lib/board";
+import { boardMembersQuery, boardMemberPhotoUrl, initialsOf } from "@/lib/board";
 import { ALUMNI_COUNT, ALUMNI_COUNT_YEARS, TOTAL_ALUMNI } from "@/lib/alumni-count";
 import { CONTACT } from "@/lib/site";
 
@@ -19,6 +20,7 @@ const fade = {
 const cell = (v: number | null) => (v === null ? "–" : v.toLocaleString());
 
 export default function AboutPage() {
+  const { data: members = [], isLoading: boardLoading } = useQuery(boardMembersQuery());
   return (
     <PublicLayout title="About the Alumni Cell">
       <PageHero
@@ -82,6 +84,11 @@ export default function AboutPage() {
         <motion.section {...fade} id="board" className="scroll-mt-24">
           <h2 className="text-xl sm:text-2xl font-bold mb-2">Alumni Association Board</h2>
           <div className="w-14 h-0.5 bg-primary/50 mb-6" />
+          {boardLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-sm border-collapse min-w-[640px]">
               <thead className="bg-muted/50">
@@ -94,13 +101,15 @@ export default function AboutPage() {
                 </tr>
               </thead>
               <tbody>
-                {BOARD_MEMBERS.map((m, i) => (
-                  <tr key={m.name} className="border-t border-border hover:bg-muted/30 transition-colors">
+                {members.map((m, i) => {
+                  const photoUrl = boardMemberPhotoUrl(m);
+                  return (
+                  <tr key={m.id} className="border-t border-border hover:bg-muted/30 transition-colors">
                     <td className="py-3 px-4 text-muted-foreground">{i + 1}</td>
                     <td className="py-3 px-4">
-                      {m.photo ? (
+                      {photoUrl ? (
                         <img
-                          src={m.photo}
+                          src={photoUrl}
                           alt={m.name}
                           loading="lazy"
                           className="w-14 h-16 rounded-md object-cover object-top ring-1 ring-border"
@@ -119,10 +128,12 @@ export default function AboutPage() {
                       </span>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          )}
         </motion.section>
 
         {/* Alumni count */}

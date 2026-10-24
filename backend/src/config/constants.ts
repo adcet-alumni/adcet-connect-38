@@ -56,7 +56,8 @@ export const UPLOAD_SCOPES = [
   "avatar", "banner", "event", "achievement", "receipt", "resume",
   "event-attachment", "job-attachment", "email-attachment", "post",
   "newsletter", "newsletter-cover", "gallery", "collaboration",
-  "donation-proof", "donation-qr", "identity", "backup",
+  "donation-proof", "donation-qr", "identity",
+  "board-member", "esteemed-alumni", "backup",
 ] as const;
 export type UploadScope = (typeof UPLOAD_SCOPES)[number];
 
@@ -123,6 +124,9 @@ export const UPLOAD_MAX_BYTES: Record<UploadScope, number> = {
   "newsletter-cover": 10 * MB,
   gallery: 10 * MB,
   collaboration: 10 * MB,
+  // Board member and esteemed alumni portraits, admin-managed.
+  "board-member": 10 * MB,
+  "esteemed-alumni": 10 * MB,
   // A screenshot off a UPI app, and the payee's QR image.
   "donation-proof": 10 * MB,
   "donation-qr": 5 * MB,

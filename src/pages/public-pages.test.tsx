@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -10,11 +10,11 @@ import NewsPage from "./NewsPage";
 import GalleryPage from "./GalleryPage";
 import EsteemedAlumniPage from "./EsteemedAlumniPage";
 import { TOTAL_ALUMNI } from "@/lib/alumni-count";
-import { BOARD_MEMBERS } from "@/lib/board";
 import { CONTACT } from "@/lib/site";
-import { ESTEEMED_ALUMNI, ESTEEMED_CATEGORIES } from "@/lib/esteemed";
+import { ESTEEMED_CATEGORIES } from "@/lib/esteemed";
 
-// The landing page pulls featured achievements; keep the smoke test offline.
+// Board members and esteemed alumni are now API-backed so `api.get` returns
+// empty arrays — the pages render their loading/empty states without crashing.
 vi.mock("@/lib/api", () => ({
   api: { get: vi.fn().mockResolvedValue({ items: [] }), patch: vi.fn().mockResolvedValue({}) },
   tokenStore: { get: () => null, set: vi.fn(), clear: vi.fn() },
@@ -40,12 +40,10 @@ describe("public pages", () => {
     expect(screen.getByText(/^26\+?$/)).toBeInTheDocument();
   });
 
-  it("renders every board member and the alumni total on the about page", () => {
+  it("renders the about page with the board section heading and alumni total", () => {
     renderPage(<AboutPage />);
+    // Board section heading is always rendered regardless of whether members have loaded.
     expect(screen.getByRole("heading", { name: "Alumni Association Board" })).toBeInTheDocument();
-    for (const m of BOARD_MEMBERS) {
-      expect(screen.getByText(m.name)).toBeInTheDocument();
-    }
     // The footer total is derived from the rows, not hardcoded.
     expect(TOTAL_ALUMNI).toBe(11256);
     expect(screen.getAllByText("11,256").length).toBeGreaterThan(0);
@@ -56,7 +54,6 @@ describe("public pages", () => {
     expect(screen.getAllByText("alumni@adcet.in").length).toBeGreaterThan(0);
     // Derived from CONTACT rather than hardcoded — the office adds and drops
     // numbers, and that shouldn't fail a test about *which* address is shown.
-    // Each number appears in both the page body and the shared footer.
     expect(CONTACT.phones.length).toBeGreaterThan(0);
     for (const phone of CONTACT.phones) {
       expect(screen.getAllByRole("link", { name: phone }).length).toBeGreaterThan(0);
@@ -66,21 +63,24 @@ describe("public pages", () => {
     expect(screen.getAllByText("director@adcet.in")).toHaveLength(1);
   });
 
-  it("renders the news, gallery and esteemed alumni pages", () => {
+  it("renders the news and gallery pages", () => {
     renderPage(<NewsPage />);
     expect(screen.getByRole("heading", { name: "Latest Updates" })).toBeInTheDocument();
 
     renderPage(<GalleryPage />);
     expect(screen.getAllByRole("heading", { name: "Gallery" }).length).toBeGreaterThan(0);
+  });
 
+  it("renders the esteemed alumni page with category section headings", async () => {
     renderPage(<EsteemedAlumniPage />);
-    // The page is the three categories and nothing else — every alumnus is in
-    // exactly one, so there is no "All Esteemed Alumni" roll repeating them.
+    // Category section headings are rendered structurally — even while the API
+    // is loading each section shows a spinner, and once resolved the
+    // empty-state placeholder appears (api mock returns no alumni).
     for (const cat of ESTEEMED_CATEGORIES) {
-      expect(screen.getByRole("heading", { name: cat.title })).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: cat.title })).toBeInTheDocument(),
+      );
     }
     expect(screen.queryByRole("heading", { name: /all esteemed alumni/i })).not.toBeInTheDocument();
-    // Every tile carries the batch under the portrait, alongside the name.
-    expect(screen.getAllByText(/^Batch of \d{4}$/).length).toBe(ESTEEMED_ALUMNI.length);
   });
 });
