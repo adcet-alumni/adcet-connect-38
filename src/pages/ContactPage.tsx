@@ -1,10 +1,11 @@
 import { motion } from "framer-motion";
 import { Clock, Globe, Mail, MapPin, Phone } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import PublicLayout from "@/components/public/PublicLayout";
 import PageHero from "@/components/public/PageHero";
 import SocialLinks from "@/components/public/SocialLinks";
 import { CONTACT } from "@/lib/site";
-import { ALUMNI_CELL_INCHARGE } from "@/lib/board";
+import { ALUMNI_CELL_INCHARGE, boardMembersQuery, boardMemberPhotoUrl, initialsOf } from "@/lib/board";
 
 const fade = {
   initial: { opacity: 0, y: 12 },
@@ -13,6 +14,10 @@ const fade = {
 };
 
 export default function ContactPage() {
+  // Find the incharge from the board; fall back to the static name/designation.
+  const { data: members = [] } = useQuery(boardMembersQuery());
+  const incharge = members.find((m) => m.authority === "Secretary") ?? null;
+  const photoUrl = incharge ? boardMemberPhotoUrl(incharge) : undefined;
   return (
     <PublicLayout title="Contact Us">
       <PageHero title="Contact Us" subtitle="ADCET Alumni Cell, Ashta" />
@@ -23,15 +28,21 @@ export default function ContactPage() {
           <h2 className="text-xl sm:text-2xl font-bold mb-2">Alumni Cell In-charge</h2>
           <div className="w-14 h-0.5 bg-primary/50 mb-6" />
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-7 border border-border rounded-xl p-6 sm:p-8 bg-muted/20">
-            <img
-              src={ALUMNI_CELL_INCHARGE.photo}
-              alt={ALUMNI_CELL_INCHARGE.name}
-              loading="lazy"
-              className="w-40 h-48 sm:w-44 sm:h-52 rounded-lg object-cover object-top ring-1 ring-border shrink-0"
-            />
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={incharge?.name ?? ALUMNI_CELL_INCHARGE.name}
+                loading="lazy"
+                className="w-40 h-48 sm:w-44 sm:h-52 rounded-lg object-cover object-top ring-1 ring-border shrink-0"
+              />
+            ) : (
+              <div className="w-40 h-48 sm:w-44 sm:h-52 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-4xl font-semibold shrink-0 ring-1 ring-border">
+                {initialsOf(incharge?.name ?? ALUMNI_CELL_INCHARGE.name)}
+              </div>
+            )}
             <div className="text-center sm:text-left">
-              <p className="text-xl sm:text-2xl font-semibold text-foreground">{ALUMNI_CELL_INCHARGE.name}</p>
-              <p className="text-base sm:text-lg text-primary mt-1">{ALUMNI_CELL_INCHARGE.designation}</p>
+              <p className="text-xl sm:text-2xl font-semibold text-foreground">{incharge?.name ?? ALUMNI_CELL_INCHARGE.name}</p>
+              <p className="text-base sm:text-lg text-primary mt-1">{incharge?.designation ?? ALUMNI_CELL_INCHARGE.designation}</p>
               <p className="text-sm sm:text-base text-muted-foreground mt-4 leading-relaxed">
                 For alumni registrations, chapter activity, reunions and institutional partnerships, write to{" "}
                 <a href={`mailto:${CONTACT.email}`} className="text-primary hover:underline">

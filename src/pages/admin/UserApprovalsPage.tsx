@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Search, CheckCircle, XCircle, Filter, Users, ChevronLeft, ChevronRight, Mail, ShieldCheck, ShieldX, RotateCcw } from "lucide-react";
+import { Search, CheckCircle, XCircle, Filter, Users, ChevronLeft, ChevronRight, Mail, ShieldCheck, ShieldX, RotateCcw, Trash2, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -78,6 +79,8 @@ const UserApprovalsPage = () => {
   const [messageTarget, setMessageTarget] = useState<{ id: string; name: string } | null>(null);
   const [messageForm, setMessageForm] = useState({ subject: "", body: "" });
   const [chapterId, setChapterId] = useState("all");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<{ id: string; name: string } | null>(null);
 
   const chapters = useQuery({ queryKey: ["chapters"], queryFn: () => fetchChapters() });
 
@@ -135,6 +138,28 @@ const UserApprovalsPage = () => {
       setMessageForm({ subject: "", body: "" });
     },
     onError: (e: Error) => toast({ title: "Send failed", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteUser = useMutation({
+    mutationFn: (id: string) => api.delete(`/admin/users/${id}`),
+    onSuccess: () => {
+      toast({ title: "User deleted", description: "The user record has been permanently removed." });
+      setDeleteTarget(null);
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      qc.invalidateQueries({ queryKey: ["analytics", "admin-overview"] });
+    },
+    onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
+
+  const archiveUser = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/users/${id}/archive`, {}),
+    onSuccess: () => {
+      toast({ title: "User archived", description: "The user's access has been revoked. Their data is preserved." });
+      setArchiveTarget(null);
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      qc.invalidateQueries({ queryKey: ["analytics", "admin-overview"] });
+    },
+    onError: (e: Error) => toast({ title: "Archive failed", description: e.message, variant: "destructive" }),
   });
 
   const users = data?.items ?? [];
@@ -386,6 +411,26 @@ const UserApprovalsPage = () => {
                   >
                     <Mail className="h-3.5 w-3.5" /> Message
                   </Button>
+                  {/* Archive for approved users; Delete for pending/rejected */}
+                  {u.status === "APPROVED" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950"
+                      onClick={() => setArchiveTarget({ id: u.id, name })}
+                    >
+                      <Archive className="h-3.5 w-3.5" /> Archive
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={() => setDeleteTarget({ id: u.id, name })}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </Button>
+                  )}
                 </div>
               </motion.div>
             );
@@ -489,6 +534,64 @@ const UserApprovalsPage = () => {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete user confirmation (non-approved only) */}
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <Trash2 className="h-5 w-5" /> Permanently delete user
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently remove <strong>{deleteTarget?.name}</strong>'s account and all associated data.
+              Their email address will be freed for re-registration. <strong>This cannot be undone.</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              className="gap-1.5"
+              disabled={deleteUser.isPending}
+              onClick={() => deleteTarget && deleteUser.mutate(deleteTarget.id)}
+            >
+              {deleteUser.isPending
+                ? <span className="h-4 w-4 animate-spin border-2 border-current border-t-transparent rounded-full" />
+                : <Trash2 className="h-4 w-4" />}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Archive user confirmation (approved users only) */}
+      <Dialog open={!!archiveTarget} onOpenChange={(o) => { if (!o) setArchiveTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Archive className="h-5 w-5 text-amber-500" /> Archive user
+            </DialogTitle>
+            <DialogDescription>
+              <strong>{archiveTarget?.name}</strong>'s portal access will be revoked immediately and all their sessions ended.
+              Their posts, jobs, and data are <strong>preserved</strong> in the system.
+              You can delete the account later if needed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setArchiveTarget(null)}>Cancel</Button>
+            <Button
+              className="gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={archiveUser.isPending}
+              onClick={() => archiveTarget && archiveUser.mutate(archiveTarget.id)}
+            >
+              {archiveUser.isPending
+                ? <span className="h-4 w-4 animate-spin border-2 border-current border-t-transparent rounded-full" />
+                : <Archive className="h-4 w-4" />}
+              Archive user
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </motion.div>

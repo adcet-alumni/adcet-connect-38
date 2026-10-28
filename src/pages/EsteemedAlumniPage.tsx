@@ -1,19 +1,21 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
+import { ImageIcon, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import PublicLayout from "@/components/public/PublicLayout";
 import PageHero from "@/components/public/PageHero";
-import { ESTEEMED_CATEGORIES, EsteemedAlumnus, esteemedByCategory } from "@/lib/esteemed";
+import {
+  ESTEEMED_CATEGORIES,
+  esteemedAlumniQuery,
+  esteemedAlumnusPhotoUrl,
+  categoryIdOf,
+  type EsteemedAlumnus,
+} from "@/lib/esteemed";
 
 /**
  * One alumnus: a plain rectangular portrait, centred, with the name, batch and
- * designation centred beneath it. No card chrome and no circular crop — a
- * rectangle keeps the whole photograph, and heads sit near the top, so
- * `object-top` avoids cropping faces.
- *
- * `max-w-[9.5rem]` caps the tile so a wide viewport makes the *columns*
- * roomier rather than the portraits bigger; below that width the tile simply
- * fills its grid cell.
+ * designation centred beneath it.
  */
 function Alumnus({ a }: { a: EsteemedAlumnus }) {
   return (
@@ -24,7 +26,7 @@ function Alumnus({ a }: { a: EsteemedAlumnus }) {
       className="w-full max-w-[9.5rem] mx-auto text-center"
     >
       <img
-        src={a.photo}
+        src={esteemedAlumnusPhotoUrl(a)}
         alt={a.name}
         loading="lazy"
         className="w-full aspect-[3/4] rounded-lg object-cover object-top bg-muted ring-1 ring-border"
@@ -45,6 +47,8 @@ function Alumnus({ a }: { a: EsteemedAlumnus }) {
 }
 
 export default function EsteemedAlumniPage() {
+  const { data: alumni = [], isLoading, isError } = useQuery(esteemedAlumniQuery());
+
   return (
     <PublicLayout title="Esteemed Alumni">
       <PageHero
@@ -53,31 +57,39 @@ export default function EsteemedAlumniPage() {
       />
 
       <div className="max-w-5xl mx-auto px-6 py-14 space-y-16">
-        {/* Every alumnus belongs to exactly one category, so these three
-            sections between them cover the whole roster — there is deliberately
-            no separate "All Esteemed Alumni" roll repeating them. */}
-        {ESTEEMED_CATEGORIES.map((cat) => {
-          const members = esteemedByCategory(cat.id);
-          return (
-            <section key={cat.id} id={cat.id} className="scroll-mt-24">
-              <h2 className="text-xl sm:text-2xl font-bold mb-2">{cat.title}</h2>
-              <p className="text-sm text-muted-foreground mb-6 max-w-3xl">{cat.description}</p>
-              {members.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-7 sm:gap-x-5 sm:gap-y-8">
-                  {members.map((a) => (
-                    <Alumnus key={a.name} a={a} />
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    This section is being updated. Alumni profiles will be published here shortly.
-                  </p>
-                </div>
-              )}
-            </section>
-          );
-        })}
+        {isError ? (
+          <div className="rounded-xl border border-dashed border-border bg-muted/20 p-12 text-center">
+            <ImageIcon className="h-8 w-8 text-muted-foreground/50 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">The alumni list is unavailable right now.</p>
+          </div>
+        ) : (
+          ESTEEMED_CATEGORIES.map((cat) => {
+            const members = alumni.filter((a) => categoryIdOf(a.category) === cat.id);
+            return (
+              <section key={cat.id} id={cat.id} className="scroll-mt-24">
+                <h2 className="text-xl sm:text-2xl font-bold mb-2">{cat.title}</h2>
+                <p className="text-sm text-muted-foreground mb-6 max-w-3xl">{cat.description}</p>
+                {isLoading ? (
+                  <div className="flex py-6">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : members.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-7 sm:gap-x-5 sm:gap-y-8">
+                    {members.map((a) => (
+                      <Alumnus key={a.id} a={a} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      This section is being updated. Alumni profiles will be published here shortly.
+                    </p>
+                  </div>
+                )}
+              </section>
+            );
+          })
+        )}
 
         <section className="rounded-2xl border border-border bg-muted/20 p-8 text-center">
           <h2 className="text-xl font-bold mb-2">Know an Alumnus Who Belongs Here?</h2>

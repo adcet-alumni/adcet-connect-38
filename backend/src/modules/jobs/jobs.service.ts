@@ -132,7 +132,7 @@ export const remove = async (caller: Caller, id: string) => {
   // Best-effort cleanup of storage objects (attachment and any applicant resumes).
   const keysToDelete = [
     existing.attachmentKey,
-    ...existing.applications.map((a) => a.resumeKey),
+    ...(existing.applications ?? []).map((a) => a.resumeKey),
   ].filter(Boolean) as string[];
 
   if (keysToDelete.length > 0) {

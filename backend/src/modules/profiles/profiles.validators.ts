@@ -41,7 +41,7 @@ const optionalDayOrMonth = (max: number) =>
     .transform((v) => (v === undefined ? undefined : blank(v) ? null : (v as number)));
 
 const optionalYear = z
-  .union([z.coerce.number().int().min(1980).max(2100), z.null(), z.literal("")])
+  .union([z.coerce.number().int().min(2000).max(new Date().getFullYear() + 1), z.null(), z.literal("")])
   .optional()
   .transform((v) => (v === undefined ? undefined : blank(v) ? null : (v as number)));
 

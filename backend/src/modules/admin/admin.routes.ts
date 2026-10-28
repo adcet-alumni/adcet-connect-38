@@ -44,6 +44,8 @@ adminRouter.post(
 );
 
 adminRouter.get("/users/:id", asyncHandler(ctrl.getUser));
+adminRouter.delete("/users/:id", asyncHandler(ctrl.deleteUser));
+adminRouter.post("/users/:id/archive", asyncHandler(ctrl.archiveUser));
 adminRouter.post(
   "/users/:id/status",
   validate(userStatusSchema),

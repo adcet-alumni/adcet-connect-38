@@ -4,6 +4,8 @@ import { BadRequest, Conflict, NotFound, errorMessage } from "../../lib/errors.j
 import { paginate, paginationMeta, type PaginationQuery } from "../../lib/pagination.js";
 import type { AppRoleName } from "../../config/constants.js";
 import { notify } from "../notifications/notifications.service.js";
+import { getStorage } from "../../storage/index.js";
+import { logger } from "../../lib/logger.js";
 
 type UserStatus = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -123,6 +125,111 @@ export const getUserById = async (id: string) => {
   if (!user) throw NotFound();
   const { passwordHash: _ph, ...safe } = user;
   return safe;
+};
+
+/**
+ * Hard-delete a non-approved (PENDING or REJECTED) user.
+ *
+ * Approved users cannot be hard-deleted to protect data integrity — use
+ * `archiveUser` instead. Deleting a PENDING/REJECTED user removes the DB
+ * record entirely, freeing the email address so the person can re-register.
+ *
+ * S3 clean-up is best-effort: a failure to remove objects is logged but does
+ * not abort the deletion of the DB row, so the account is always gone even if
+ * the bucket still holds an orphaned file.
+ */
+export const deleteUser = async (actorId: string, userId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      profile: { select: { avatarKey: true, bannerKey: true, identityDocumentKey: true } },
+    },
+  });
+  if (!user) throw NotFound();
+  if (user.status === "APPROVED") {
+    throw BadRequest(
+      "Cannot permanently delete an approved user. Use archive to revoke access instead.",
+    );
+  }
+
+  // Collect S3 keys to clean up (best-effort).
+  const keysToDelete: string[] = [];
+  if (user.profile?.avatarKey) keysToDelete.push(user.profile.avatarKey);
+  if (user.profile?.bannerKey) keysToDelete.push(user.profile.bannerKey);
+  if (user.profile?.identityDocumentKey) keysToDelete.push(user.profile.identityDocumentKey);
+
+  // DB delete first — if this fails we haven't touched S3.
+  await prisma.user.delete({ where: { id: userId } });
+
+  // Audit trail (actor may be different admin, so actorId is preserved).
+  await prisma.auditLog.create({
+    data: {
+      actorId,
+      action: "user.delete",
+      entity: "User",
+      entityId: userId,
+      metadata: { email: user.email, status: user.status },
+    },
+  });
+
+  // Clean up S3 objects — non-blocking, failures are only logged.
+  if (keysToDelete.length > 0) {
+    const storage = getStorage();
+    Promise.allSettled(keysToDelete.map((k) => storage.delete(k))).catch((err) =>
+      logger.warn({ err, userId, keys: keysToDelete }, "Failed to clean up S3 objects for deleted user"),
+    );
+  }
+};
+
+/**
+ * Archive an approved user — revokes portal access without removing data.
+ *
+ * Sets the account status back to REJECTED so all `requireApproved` guards
+ * block the user immediately. Their content (jobs, posts, etc.) is preserved
+ * for the record. A subsequent hard-delete by a cron job or manual admin
+ * action will eventually remove everything.
+ *
+ * This is the only way admin can act on an approved user: hard-delete is
+ * reserved for accounts that were never approved.
+ */
+export const archiveUser = async (actorId: string, userId: string) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw NotFound();
+  if (user.status !== "APPROVED") {
+    throw BadRequest(
+      "Only approved users can be archived. To delete a pending or rejected user, use delete instead.",
+    );
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      status: "REJECTED",
+      rejectionReason: "Account archived by administrator",
+      // Revoke all refresh tokens so existing sessions end immediately.
+      refreshTokens: { deleteMany: {} },
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      actorId,
+      action: "user.archive",
+      entity: "User",
+      entityId: userId,
+      metadata: { email: user.email },
+    },
+  });
+
+  // Notify the user that their account has been suspended.
+  await notify(userId, {
+    type: "account.archived",
+    title: "Your account has been suspended",
+    body: "An administrator has suspended your account. You no longer have access to the alumni portal. Please contact the alumni office if you believe this is an error.",
+    sendEmailToo: true,
+  });
+
+  return { id: updated.id, status: updated.status };
 };
 
 export const assignRole = async (userId: string, role: AppRoleName) => {

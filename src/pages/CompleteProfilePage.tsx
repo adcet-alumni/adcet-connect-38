@@ -25,15 +25,16 @@ import { errorMessage } from "@/lib/utils";
 import type { AuthUser } from "@/lib/api";
 import { DEPARTMENTS } from "@/lib/departments";
 import {
-  DEGREES, MIN_ACADEMIC_YEAR, MONTHS, admissionYearFor, daysInMonth, type DegreeValue,
+  DEGREES, MONTHS, admissionYearFor, daysInMonth, type DegreeValue,
 } from "@/lib/degrees";
 import { landingRouteFor } from "@/lib/landing";
 import { toast } from "@/hooks/use-toast";
 
 const currentYear = new Date().getFullYear();
-const LAST_GRAD_YEAR = currentYear + 6;
+const LAST_GRAD_YEAR = currentYear + 1;
+const FIRST_GRAD_YEAR = 2000;
 const years = Array.from(
-  { length: LAST_GRAD_YEAR - MIN_ACADEMIC_YEAR + 1 },
+  { length: LAST_GRAD_YEAR - FIRST_GRAD_YEAR + 1 },
   (_, i) => String(LAST_GRAD_YEAR - i),
 );
 

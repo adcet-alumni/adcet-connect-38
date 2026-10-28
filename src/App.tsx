@@ -87,6 +87,8 @@ const ChaptersAdminPage = route("/admin/chapters", () => import("./pages/admin/C
 const NewsroomPage = route("/admin/newsroom", () => import("./pages/admin/NewsroomPage"));
 const GalleryAdminPage = route("/admin/gallery", () => import("./pages/admin/GalleryAdminPage"));
 const CollaborationAdminPage = route("/admin/collaboration", () => import("./pages/admin/CollaborationAdminPage"));
+const BoardAdminPage = route("/admin/board", () => import("./pages/admin/BoardAdminPage"));
+const EsteemedAdminPage = route("/admin/esteemed", () => import("./pages/admin/EsteemedAdminPage"));
 const StaticContentPage = route("/dashboard/support", () => import("./pages/StaticContentPage"));
 const AccountStatusPage = route("/dashboard/status", () => import("./pages/AccountStatusPage"));
 const SupportInboxPage = route("/admin/support", () => import("./pages/admin/SupportInboxPage"));
@@ -220,6 +222,8 @@ const App = () => (
                   <Route path="reports" element={<ReportsPage />} />
                   <Route path="newsroom" element={<NewsroomPage />} />
                   <Route path="gallery" element={<GalleryAdminPage />} />
+                  <Route path="board" element={<BoardAdminPage />} />
+                  <Route path="esteemed" element={<EsteemedAdminPage />} />
                   <Route path="collaboration/placement" element={<CollaborationAdminPage type="PLACEMENT" />} />
                   <Route path="collaboration/workshop" element={<CollaborationAdminPage type="WORKSHOP" />} />
                   <Route path="collaboration/other" element={<CollaborationAdminPage type="OTHER" />} />

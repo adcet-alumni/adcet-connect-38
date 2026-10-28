@@ -1,54 +1,30 @@
 /**
- * ADCET Alumni Association board members, in the order maintained by the
- * alumni office. Photos live in `public/AlumniAssociation/`; a member without
- * a photograph on file gets an initials avatar instead.
+ * Alumni Association board members — DB-backed, admin-managed.
+ *
+ * The admin adds, edits and reorders members from `/admin/board`.
+ * Photos are stored in S3 (or whichever STORAGE_DRIVER is configured);
+ * `assetUrl()` resolves the key to a browsable URL for the UI.
  */
+import { api } from "@/lib/api";
+import { assetUrl } from "@/lib/storage";
+
 export interface BoardMember {
+  id: string;
   name: string;
-  /** Position held on the association board. */
+  /** Position held on the association board, e.g. "President". */
   authority: string;
-  /** Institutional role shown in brackets. */
+  /** Institutional role, e.g. "Director, ADCET, Ashta". */
   designation: string;
-  photo: string | null;
+  /** Storage key for the portrait, or null when no photo is on file. */
+  photoKey: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-const dir = "/AlumniAssociation";
-
-export const BOARD_MEMBERS: BoardMember[] = [
-  { name: "Adv. Rajendra Dange", authority: "President", designation: "Secretary, SDSS, Urun-Ishwarpur", photo: `${dir}/RajendraDange.png` },
-  { name: "Dr. L. Y. Waghmode", authority: "Vice-President", designation: "Director, ADCET, Ashta", photo: `${dir}/L.Y.Waghmode.png` },
-  { name: "Dr. S. B. Hivarekar", authority: "Member", designation: "Dean, Faculty and Student Development", photo: `${dir}/S.B.Hivarekar.png` },
-  { name: "Dr. Gopinath S.", authority: "Member", designation: "Dean, Academics", photo: `${dir}/S.Gopinath.png` },
-  { name: "Dr. P. D. Kulkarni", authority: "Member", designation: "Dean, International Collaborations", photo: `${dir}/P.D.Kulkarni.png` },
-  { name: "Dr. R. R. Gaji", authority: "Secretary", designation: "Dean, Alumni Relations and Strategic Partnership", photo: `${dir}/R.R.Gaji.png` },
-  { name: "Mr. Sandip Magdum", authority: "Member", designation: "Dean, Industry Partnership and Campus Placement", photo: `${dir}/S.Magdum.png` },
-  { name: "Mr. Vallabh Joshi", authority: "Member", designation: "Alumni Representative, Mechanical Engineering", photo: `${dir}/V.Joshi.png` },
-  { name: "Mr. Sagar Anturkar", authority: "Member", designation: "Alumni Representative, Electronics and Telecommunication", photo: `${dir}/S.Anturkar.png` },
-  { name: "Mr. Vikram Gharge", authority: "Member", designation: "Alumni Representative, Information Technology", photo: `${dir}/V.Gharage.png` },
-  { name: "Ms. Anuprit D. Jadhav", authority: "Member", designation: "Alumni Representative, Computer Science Engineering", photo: `${dir}/A.D.Jadhav.png` },
-  { name: "Mr. Pratik Patil", authority: "Member", designation: "Alumni Representative, Civil Engineering", photo: `${dir}/P.Patil.png` },
-  { name: "Mr. Amir Khan", authority: "Member", designation: "Alumni Representative, Electrical Engineering", photo: `${dir}/AmirKhan.png` },
-  { name: "Mr. Ganesh Malgunde", authority: "Member", designation: "Alumni Representative, Aeronautical Engineering", photo: `${dir}/G.Malgunde.png` },
-  { name: "Mr. Prathamesh Dhapate", authority: "Member", designation: "Alumni Representative, Food Technology", photo: `${dir}/P.Dhapate.png` },
-  { name: "Mrs. A. M. Mulla", authority: "Member", designation: "Department Alumni Coordinator, CSE", photo: `${dir}/A.M.Mulla.png` },
-  { name: "Mr. R. P. Mali", authority: "Member", designation: "Department Alumni Coordinator, Mechanical", photo: `${dir}/R.P.Mali.png` },
-  { name: "Mr. S. K. Shaikh", authority: "Member", designation: "Department Alumni Coordinator, Electrical", photo: `${dir}/S.K.Shaikh.png` },
-  { name: "Mr. A. G. Mujawar", authority: "Member", designation: "Department Alumni Coordinator, Civil", photo: `${dir}/A.G.Mujawar.png` },
-  { name: "Mr. Y. B. Kumbhar", authority: "Member", designation: "Department Alumni Coordinator, Aeronautical", photo: `${dir}/Y.B.Kumbhar.png` },
-  { name: "Mr. Ashish Ashok Patil", authority: "Member", designation: "Department Alumni Coordinator, Food Technology", photo: `${dir}/A.A.Patil.png` },
-  { name: "Mrs. S. P. Nalavade", authority: "Member", designation: "Department Alumni Coordinator, AI & DS", photo: `${dir}/S.P.Nalavade.png` },
-  { name: "Mrs. P. S. Pathak", authority: "Member", designation: "Department Alumni Coordinator, CSE (IoT)", photo: `${dir}/P.S.Pathak.png` },
-];
-
-/**
- * The alumni office's point of contact, named on the public Contact page.
- * Same photograph as his board entry above.
- */
-export const ALUMNI_CELL_INCHARGE = {
-  name: "Dr. Rahul R. Gaji",
-  designation: "Dean, Alumni Relation and Strategic Partnership",
-  photo: `${dir}/R.R.Gaji.png`,
-};
+/** Public URL for a board member portrait, or undefined when none is set. */
+export const boardMemberPhotoUrl = (member: BoardMember) =>
+  member.photoKey ? assetUrl(member.photoKey) : undefined;
 
 /** Initials used when a member has no photograph on file. */
 export const initialsOf = (name: string) =>
@@ -59,3 +35,46 @@ export const initialsOf = (name: string) =>
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
+
+/* ----------------------------- API wrappers ----------------------------- */
+
+export const boardMembersQuery = () => ({
+  queryKey: ["board", "members"] as const,
+  queryFn: () =>
+    api.get<{ items: BoardMember[] }>("/board").then((r) => r.items),
+});
+
+export const createBoardMember = (data: {
+  name: string;
+  authority: string;
+  designation: string;
+  photoKey?: string;
+  sortOrder?: number;
+}) => api.post<BoardMember>("/board", data);
+
+export const updateBoardMember = (
+  id: string,
+  data: {
+    name?: string;
+    authority?: string;
+    designation?: string;
+    photoKey?: string | null;
+    sortOrder?: number;
+  },
+) => api.patch<BoardMember>(`/board/${id}`, data);
+
+export const deleteBoardMember = (id: string) => api.delete(`/board/${id}`);
+
+export const reorderBoardMembers = (items: { id: string; sortOrder: number }[]) =>
+  api.post<{ items: BoardMember[] }>("/board/reorder", { items });
+
+/**
+ * The alumni office's point of contact, shown on the public Contact page.
+ * This is kept as a static fallback; the admin can update the board member
+ * record that corresponds to this person to change photos or designation.
+ */
+export const ALUMNI_CELL_INCHARGE = {
+  name: "Dr. Rahul R. Gaji",
+  designation: "Dean, Alumni Relation and Strategic Partnership",
+};
+

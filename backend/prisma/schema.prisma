@@ -870,6 +870,60 @@ model GalleryPhoto {
   @@index([albumId, sortOrder])
 }
 
+// =====================================================================
+// BOARD MEMBERS: Alumni Association board, admin-managed
+// =====================================================================
+
+/// A member of the ADCET Alumni Association board, shown on the About page
+/// and in the auto-scrolling strip on the landing page.
+model BoardMember {
+  id          String   @id @default(uuid())
+  name        String
+  /// Position on the association board (e.g. "President", "Secretary").
+  authority   String
+  /// Institutional role shown in brackets (e.g. "Director, ADCET, Ashta").
+  designation String
+  /// Storage key for the portrait, or null when no photo is on file.
+  photoKey    String?
+  /// Display order — lower numbers come first.
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([sortOrder, createdAt])
+}
+
+// =====================================================================
+// ESTEEMED ALUMNI: admin-managed roster
+// =====================================================================
+
+/// A distinguished alumnus featured on the Esteemed Alumni page and the
+/// landing-page marquee strip.
+model EsteemedAlumnus {
+  id        String   @id @default(uuid())
+  name      String
+  /// Graduating year shown under the name.
+  batch     Int
+  /// Current designation — the last line on the tile.
+  position  String
+  /// Storage key for the portrait (required — every entry must have a photo).
+  photoKey  String
+  /// Category this alumnus belongs to.
+  category  EsteemedCategory
+  /// Display order within the category — lower numbers come first.
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, sortOrder])
+}
+
+enum EsteemedCategory {
+  leadership
+  entrepreneurs
+  civil_services
+}
+
 model SupportMessage {
   id         String    @id @default(uuid())
   name       String
