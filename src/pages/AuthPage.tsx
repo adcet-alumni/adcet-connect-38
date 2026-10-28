@@ -15,7 +15,6 @@ import { errorMessage } from "@/lib/utils";
 import { DEPARTMENTS as departments } from "@/lib/departments";
 import {
   DEGREES as degrees,
-  MIN_ACADEMIC_YEAR,
   MONTHS,
   admissionYearFor,
   daysInMonth,
@@ -25,12 +24,13 @@ import { landingRouteFor } from "@/lib/landing";
 import { toast } from "@/hooks/use-toast";
 import ForgotPasswordDialog from "@/components/ForgotPasswordDialog";
 
-// Final-year students register before convocation, so the list runs a few
-// years ahead; anything further out is a typo and the API rejects it.
+// Max graduation year is current year + 1 (for final-year students registering
+// before convocation). Min is 2000 as per college requirements.
 const currentYear = new Date().getFullYear();
-const LAST_GRAD_YEAR = currentYear + 6;
+const LAST_GRAD_YEAR = currentYear + 1;
+const FIRST_GRAD_YEAR = 2000;
 const years = Array.from(
-  { length: LAST_GRAD_YEAR - MIN_ACADEMIC_YEAR + 1 },
+  { length: LAST_GRAD_YEAR - FIRST_GRAD_YEAR + 1 },
   (_, i) => String(LAST_GRAD_YEAR - i),
 );
 

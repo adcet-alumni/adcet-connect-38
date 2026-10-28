@@ -2,11 +2,11 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Mail, Building, GraduationCap, MapPin, Phone, Linkedin, Github, Twitter, Globe, MessageSquare, Loader2, UserX, AlertCircle } from "lucide-react";
+import { ArrowLeft, Mail, Building, GraduationCap, MapPin, Phone, Linkedin, Github, Twitter, Globe, MessageSquare, Loader2, UserX, AlertCircle, Trash2, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,6 +56,28 @@ const AdminUserDetailPage = () => {
   const name = data ? `${data.firstName} ${data.lastName}`.trim() || data.email : "";
   const initials = name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+
+  const deleteUser = useMutation({
+    mutationFn: () => api.delete(`/admin/users/${id}`),
+    onSuccess: () => {
+      toast({ title: "User deleted", description: "The user record has been permanently removed." });
+      navigate("/admin/approvals");
+    },
+    onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
+
+  const archiveUser = useMutation({
+    mutationFn: () => api.post(`/admin/users/${id}/archive`, {}),
+    onSuccess: () => {
+      toast({ title: "User archived", description: "Portal access has been revoked." });
+      setArchiveOpen(false);
+      navigate("/admin/approvals");
+    },
+    onError: (e: Error) => toast({ title: "Archive failed", description: e.message, variant: "destructive" }),
+  });
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-3xl">
       <Button variant="ghost" size="sm" className="gap-2" onClick={() => navigate(-1)}>
@@ -102,6 +124,26 @@ const AdminUserDetailPage = () => {
               </div>
             </div>
             <SendMessageDialog userId={data.id} recipient={name} />
+            {/* Archive for approved users; Delete for pending/rejected */}
+            {data.status === "APPROVED" ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950"
+                onClick={() => setArchiveOpen(true)}
+              >
+                <Archive className="h-4 w-4" /> Archive
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+            )}
           </div>
 
           {data.status === "REJECTED" && data.rejectionReason && (
@@ -196,6 +238,59 @@ const AdminUserDetailPage = () => {
           </p>
         </div>
       )}
+
+      {/* Delete confirmation */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <Trash2 className="h-5 w-5" /> Permanently delete user
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently remove <strong>{name}</strong>&apos;s account and all associated data.
+              Their email address will be freed for re-registration. <strong>This cannot be undone.</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              className="gap-1.5"
+              disabled={deleteUser.isPending}
+              onClick={() => deleteUser.mutate()}
+            >
+              {deleteUser.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Archive confirmation */}
+      <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Archive className="h-5 w-5 text-amber-500" /> Archive user
+            </DialogTitle>
+            <DialogDescription>
+              <strong>{name}</strong>&apos;s portal access will be revoked immediately and all their sessions ended.
+              Their posts, jobs, and data are <strong>preserved</strong> in the system.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setArchiveOpen(false)}>Cancel</Button>
+            <Button
+              className="gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={archiveUser.isPending}
+              onClick={() => archiveUser.mutate()}
+            >
+              {archiveUser.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+              Archive user
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 };

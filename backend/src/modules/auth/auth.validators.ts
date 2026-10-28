@@ -46,8 +46,8 @@ export const requiredProfileFields = {
   graduationYear: z.coerce
     .number({ invalid_type_error: "Graduation year is required" })
     .int()
-    .min(MIN_ACADEMIC_YEAR)
-    .max(currentYear + 10),
+    .min(2000)
+    .max(currentYear + 1),
 
   /**
    * Birthday, day + month only — used to send birthday wishes. The year is
@@ -83,9 +83,9 @@ const checkProfileFields = (
   ctx: z.RefinementCtx,
 ) => {
   // Alumni sign up after leaving college, but final-year students register
-  // before convocation — so a near-future graduation year is legitimate while
-  // a far-future one is a typo.
-  if (data.graduationYear > currentYear + 6) {
+  // before convocation — so the graduation year for the upcoming year is
+  // legitimate, but anything beyond is a typo.
+  if (data.graduationYear > currentYear + 1) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["graduationYear"],

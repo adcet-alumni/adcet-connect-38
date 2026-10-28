@@ -18,6 +18,14 @@ export const listUsers = async (req: Request, res: Response) =>
 export const getUser = async (req: Request, res: Response) =>
   res.json(await service.getUserById(req.params.id));
 
+export const deleteUser = async (req: Request, res: Response) => {
+  await service.deleteUser(req.auth!.sub, req.params.id);
+  res.status(204).end();
+};
+
+export const archiveUser = async (req: Request, res: Response) =>
+  res.json(await service.archiveUser(req.auth!.sub, req.params.id));
+
 export const setUserStatus = async (req: Request, res: Response) =>
   res.json(await service.setUserStatus(req.auth!.sub, req.params.id, req.body.status, req.body.reason));
 
