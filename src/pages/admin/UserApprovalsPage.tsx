@@ -81,8 +81,6 @@ const UserApprovalsPage = () => {
   const [chapterId, setChapterId] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<{ id: string; name: string } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-  const [archiveTarget, setArchiveTarget] = useState<{ id: string; name: string } | null>(null);
 
   const chapters = useQuery({ queryKey: ["chapters"], queryFn: () => fetchChapters() });
 
